@@ -1,0 +1,25 @@
+# Beads (local issue tracking - not committed)
+.beads/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
