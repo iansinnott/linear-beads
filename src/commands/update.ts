@@ -3,8 +3,7 @@
  */
 
 import { Command } from "commander";
-import { queueOutboxItem, getCachedIssue } from "../utils/database.js";
-import { updateIssue, getTeamId, fetchIssue } from "../utils/linear.js";
+import { updateIssue, getTeamId } from "../utils/linear.js";
 import { formatIssueJson, formatIssueHuman, output, outputError } from "../utils/output.js";
 import type { Priority, IssueStatus } from "../types.js";
 
@@ -16,7 +15,6 @@ export const updateCommand = new Command("update")
   .option("-s, --status <status>", "New status (open, in_progress, closed)")
   .option("-p, --priority <priority>", "New priority (0-4)")
   .option("-j, --json", "Output as JSON")
-  .option("--sync", "Sync immediately (block on network)")
   .option("--team <team>", "Team key (overrides config)")
   .action(async (id: string, options) => {
     try {
@@ -54,41 +52,13 @@ export const updateCommand = new Command("update")
         process.exit(1);
       }
 
-      if (options.sync) {
-        // Sync mode: update directly in Linear
-        const teamId = await getTeamId(options.team);
-        const issue = await updateIssue(id, updates, teamId);
+      const teamId = await getTeamId(options.team);
+      const issue = await updateIssue(id, updates, teamId);
 
-        if (options.json) {
-          output(formatIssueJson(issue));
-        } else {
-          output(formatIssueHuman(issue));
-        }
+      if (options.json) {
+        output(formatIssueJson(issue));
       } else {
-        // Queue mode: add to outbox for later sync
-        queueOutboxItem("update", {
-          issueId: id,
-          ...updates,
-        });
-
-        // Return cached issue with updates applied
-        let issue = getCachedIssue(id);
-        if (!issue) {
-          issue = await fetchIssue(id);
-        }
-
-        if (issue) {
-          const updated = { ...issue, ...updates, updated_at: new Date().toISOString() };
-          if (options.json) {
-            output(formatIssueJson(updated));
-          } else {
-            output(formatIssueHuman(updated));
-            output("(queued - run 'lb sync' to push to Linear)");
-          }
-        } else {
-          output(`Queued update for: ${id}`);
-          output("Run 'lb sync' to push to Linear");
-        }
+        output(formatIssueHuman(issue));
       }
     } catch (error) {
       console.error("Error:", error instanceof Error ? error.message : error);
