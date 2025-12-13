@@ -12,7 +12,7 @@ import {
   getLabelIdByName,
   updateLastSync,
 } from "./database.js";
-import type { Issue, Dependency, IssueType, Priority, LinearIssue } from "../types.js";
+import type { Issue, Dependency, IssueType, Priority, LinearIssue, IssueStatus } from "../types.js";
 import {
   linearStateToStatus,
   linearToPriority,
