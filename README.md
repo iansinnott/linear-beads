@@ -126,17 +126,22 @@ All commands support:
 - `-d, --description <desc>` - Issue description
 - `--parent <id>` - Parent issue for subtasks
 - `--deps <deps>` - Dependencies (e.g., `discovered-from:TEAM-123`)
+- `--assign <email>` - Assign to user (or `me`); default: auto-assign to you
+- `--unassign` - Leave unassigned (skip auto-assign)
 
 ### update options
 - `-s, --status <status>` - open, in_progress, closed
 - `-p, --priority <n>` - 0-4
 - `--title <title>` - New title
 - `-d, --description <desc>` - New description
+- `--assign <email>` - Assign to user (or `me`)
+- `--unassign` - Remove assignee
 
 ### list/ready options
 - `-s, --status <status>` - Filter by status
 - `-p, --priority <n>` - Filter by priority
 - `-t, --type <type>` - Filter by type
+- `-a, --all` - (ready only) Show all ready issues, not just mine
 
 ## Architecture
 

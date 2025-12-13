@@ -21,7 +21,8 @@ const ONBOARD_CONTENT = `## Issue Tracking with lb
 
 **Check for ready work:**
 \`\`\`bash
-lb ready --json
+lb ready --json          # Your issues + unassigned
+lb ready --all --json    # All ready issues
 \`\`\`
 
 **Create new issues:**
@@ -29,12 +30,14 @@ lb ready --json
 lb create "Issue title" -t bug|feature|task -p 0-4 --json
 lb create "Issue title" -p 1 --deps discovered-from:LIN-123 --json
 lb create "Subtask" --parent LIN-123 --json
+lb create "Bug" --unassign --json   # Don't auto-assign to me
 \`\`\`
 
 **Claim and update:**
 \`\`\`bash
 lb update LIN-42 --status in_progress --json
-lb update LIN-42 --priority 1 --json
+lb update LIN-42 --assign me --json
+lb update LIN-42 --unassign --json
 \`\`\`
 
 **Complete work:**
@@ -60,12 +63,17 @@ lb close LIN-42 --reason "Completed" --json
 
 ### Workflow for AI Agents
 
-1. **Check ready work**: \`lb ready --json\` shows unblocked issues
+1. **Check ready work**: \`lb ready --json\` shows your unblocked issues (+ unassigned)
 2. **Claim your task**: \`lb update <id> --status in_progress --json\`
 3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
+4. **Discover new work?** Create linked issue (auto-assigned to you):
    - \`lb create "Found bug" -p 1 --deps discovered-from:<parent-id> --json\`
 5. **Complete**: \`lb close <id> --reason "Done" --json\`
+
+**Assignee behavior:**
+- \`lb create\` auto-assigns to you (use \`--unassign\` to skip)
+- \`lb ready\` shows your issues + unassigned (use \`--all\` for everyone's)
+- \`lb import\` assigns all imported issues to you
 
 ### Background Sync
 
