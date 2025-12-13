@@ -5,7 +5,7 @@ A CLI for tracking issues in Linear. Designed for AI agents and fast terminal wo
 ## Install
 
 ```bash
-bun install -g github:yourusername/lb-cli
+bun install -g github:nikvdp/linear-beads
 ```
 
 ## Setup
