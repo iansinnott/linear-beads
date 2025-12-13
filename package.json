@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "bun test",
     "test:integration": "bun test test/integration.test.ts",
     "build": "bun build src/cli.ts --outdir dist --target node",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
+    "prettier": "^3.7.4",
     "typescript": "^5.7.2"
   }
 }
