@@ -370,13 +370,14 @@ export function updateOutboxItemError(id: number, error: string): void {
 }
 
 /**
- * Clear all cached data
+ * Clear cached data for sync refresh
+ * Preserves blocks/related dependencies (only cleared by individual --sync)
  */
 export function clearCache(): void {
   const db = getDatabase();
   db.exec(`
     DELETE FROM issues;
-    DELETE FROM dependencies;
+    DELETE FROM dependencies WHERE type = 'parent-child';
     DELETE FROM labels;
     DELETE FROM metadata;
   `);

@@ -7,7 +7,6 @@ import {
   removeOutboxItem,
   updateOutboxItemError,
   isCacheStale,
-  clearCache,
 } from "./database.js";
 import {
   fetchIssues,
@@ -90,7 +89,7 @@ export async function pushOutbox(teamId: string): Promise<{ success: number; fai
  * Pull issues from Linear and update cache
  */
 export async function pullFromLinear(teamId: string): Promise<Issue[]> {
-  clearCache();
+  // No clearCache - fetchIssues uses upsert (INSERT OR REPLACE)
   return fetchIssues(teamId);
 }
 
