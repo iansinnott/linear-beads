@@ -4,7 +4,7 @@
   "description": "Linear-native beads-style issue tracker CLI",
   "type": "module",
   "bin": {
-    "lb": "./dist/lb"
+    "lb": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
