@@ -4,10 +4,22 @@
 
 import { Command } from "commander";
 import { queueOutboxItem } from "../utils/database.js";
-import { createIssue, getTeamId, getViewer, getUserByEmail } from "../utils/linear.js";
+import { createIssue, getTeamId, getViewer, getUserByEmail, createRelation } from "../utils/linear.js";
 import { formatIssueJson, formatIssueHuman, output } from "../utils/output.js";
 import { spawnWorkerIfNeeded } from "../utils/spawn-worker.js";
 import type { IssueType, Priority } from "../types.js";
+
+/**
+ * Parse deps string into array of {type, targetId}
+ * Format: "type:id,type:id" e.g. "discovered-from:LIN-123,blocks:LIN-456"
+ */
+function parseDeps(deps: string): Array<{ type: string; targetId: string }> {
+  if (!deps) return [];
+  return deps.split(",").map((dep) => {
+    const [type, targetId] = dep.trim().split(":");
+    return { type, targetId };
+  });
+}
 
 export const createCommand = new Command("create")
   .description("Create a new issue")
@@ -76,6 +88,20 @@ export const createCommand = new Command("create")
           assigneeId,
         });
 
+        // Handle deps after issue creation
+        if (options.deps) {
+          const deps = parseDeps(options.deps);
+          for (const dep of deps) {
+            try {
+              // Map dep types to Linear relation types
+              const relationType = dep.type === "blocks" ? "blocks" : "related";
+              await createRelation(issue.id, dep.targetId, relationType);
+            } catch (error) {
+              console.error(`Warning: Failed to create ${dep.type} relation to ${dep.targetId}`);
+            }
+          }
+        }
+
         if (options.json) {
           output(formatIssueJson(issue));
         } else {
@@ -93,6 +119,7 @@ export const createCommand = new Command("create")
           parentId: options.parent,
           assign: options.assign,
           unassign: options.unassign || false,
+          deps: options.deps,
         });
 
         // Spawn background worker if not already running
