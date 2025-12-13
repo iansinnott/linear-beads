@@ -209,3 +209,88 @@ export async function createImportedIssues(
 
   return mapping;
 }
+
+/**
+ * Create dependencies using ID mapping
+ */
+export async function createImportedDependencies(
+  issues: BeadsIssue[],
+  mapping: Map<string, string>,
+  teamId: string
+): Promise<void> {
+  const { createRelation } = await import("./linear.js");
+  let created = 0;
+
+  for (const issue of issues) {
+    const linearId = mapping.get(issue.id);
+    if (!linearId) continue;
+
+    // Handle parent relationship
+    if (issue.parent) {
+      const parentLinearId = mapping.get(issue.parent);
+      if (parentLinearId) {
+        try {
+          // In Linear, parent is handled during issue creation
+          // For now we'll skip this as it requires updating the issue
+          console.log(`  Parent: ${issue.id} → ${issue.parent}`);
+        } catch (error) {
+          console.warn(`  Failed to set parent for ${issue.id}:`, error);
+        }
+      } else {
+        console.warn(`  Skipping parent ${issue.parent} (not in mapping)`);
+      }
+    }
+
+    // Handle explicit dependencies
+    if (issue.dependencies) {
+      for (const dep of issue.dependencies) {
+        const depLinearId = mapping.get(dep.issue_id);
+        
+        if (!depLinearId) {
+          console.warn(`  Skipping dependency ${dep.issue_id} (not in mapping)`);
+          continue;
+        }
+
+        try {
+          if (dep.type === "blocks") {
+            await createRelation(linearId, depLinearId, "blocks");
+            created++;
+          } else if (dep.type === "related" || dep.type === "discovered-from") {
+            await createRelation(linearId, depLinearId, "related");
+            created++;
+          }
+        } catch (error) {
+          console.warn(`  Failed to create dependency for ${issue.id}:`, error);
+        }
+      }
+    }
+  }
+
+  if (created > 0) {
+    console.log(`✓ Created ${created} dependencies`);
+  }
+}
+
+/**
+ * Save import mapping to file
+ */
+export function saveImportMapping(
+  mapping: Map<string, string>,
+  outputPath: string
+): void {
+  const { writeFileSync, renameSync } = require("fs");
+  const lines: string[] = [];
+
+  for (const [beadsId, linearId] of mapping.entries()) {
+    lines.push(JSON.stringify({
+      beads_id: beadsId,
+      linear_id: linearId,
+      imported_at: new Date().toISOString(),
+    }));
+  }
+
+  // Atomic write
+  const tmpPath = `${outputPath}.tmp`;
+  writeFileSync(tmpPath, lines.join("\n") + "\n");
+  renameSync(tmpPath, outputPath);
+}
