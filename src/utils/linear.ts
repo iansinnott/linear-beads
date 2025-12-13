@@ -357,6 +357,31 @@ export async function fetchIssue(issueId: string): Promise<Issue | null> {
 
     const issue = linearToBdIssue(result.issue);
     cacheIssue(issue);
+
+    // Cache parent-child relation
+    if (result.issue.parent) {
+      cacheDependency({
+        issue_id: result.issue.identifier,
+        depends_on_id: result.issue.parent.identifier,
+        type: "parent-child",
+        created_at: result.issue.createdAt,
+        created_by: "sync",
+      });
+    }
+
+    // Cache other relations
+    if (result.issue.relations?.nodes) {
+      for (const rel of result.issue.relations.nodes) {
+        cacheDependency({
+          issue_id: result.issue.identifier,
+          depends_on_id: rel.relatedIssue.identifier,
+          type: rel.type === "blocks" ? "blocks" : "related",
+          created_at: result.issue.createdAt,
+          created_by: "sync",
+        });
+      }
+    }
+
     return issue;
   } catch {
     return null;
