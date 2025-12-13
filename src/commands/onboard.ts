@@ -5,103 +5,67 @@
 import { Command } from "commander";
 import { output } from "../utils/output.js";
 
-const ONBOARD_CONTENT = `## Issue Tracking with lb
+// Instructions that should be added to AGENTS.md
+const AGENTS_MD_CONTENT = `## lb - Issue Tracking
 
-**IMPORTANT**: This project uses **lb** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
+This repo uses \`lb\` for issue tracking. All tasks live in Linear.
 
-### Why lb?
+### Workflow
 
-- Linear-backed: Issues sync with Linear for visibility and collaboration
-- Dependency-aware: Track blockers and relationships between issues
-- Agent-optimized: JSON output, ready work detection, discovered-from links
-- Repo-scoped: Only see issues relevant to this repository
-- Prevents duplicate tracking systems and confusion
+1. \`lb ready --json\` - see your unblocked work
+2. \`lb update <id> --status in_progress\` - claim it
+3. Do the work
+4. \`lb close <id> --reason "Done"\` - mark complete
 
-### Quick Start
+### Creating Issues
 
-**Check for ready work:**
 \`\`\`bash
-lb ready --json          # Your issues + unassigned
-lb ready --all --json    # All ready issues
+lb create "Title" -p 1                        # priority 0-4 (0=critical)
+lb create "Bug" -t bug -p 1                   # types: bug|feature|task|chore
+lb create "Subtask" --parent LIN-123          # child of epic/feature
+lb create "Found this" --deps discovered-from:LIN-123  # link to parent work
 \`\`\`
 
-**Create new issues:**
-\`\`\`bash
-lb create "Issue title" -t bug|feature|task -p 0-4 --json
-lb create "Issue title" -p 1 --deps discovered-from:LIN-123 --json
-lb create "Subtask" --parent LIN-123 --json
-lb create "Bug" --unassign --json   # Don't auto-assign to me
-\`\`\`
+### Key Commands
 
-**Claim and update:**
-\`\`\`bash
-lb update LIN-42 --status in_progress --json
-lb update LIN-42 --assign me --json
-lb update LIN-42 --unassign --json
-\`\`\`
+- \`lb ready\` - unblocked issues assigned to you (or unassigned)
+- \`lb list\` - all issues
+- \`lb show LIN-123\` - issue details
+- \`lb update LIN-123 --status in_progress\` - update status
+- \`lb close LIN-123 --reason "why"\` - close with reason
 
-**Complete work:**
-\`\`\`bash
-lb close LIN-42 --reason "Completed" --json
-\`\`\`
+### Rules
 
-### Issue Types
-
-- \`bug\` - Something broken
-- \`feature\` - New functionality
-- \`task\` - Work item (tests, docs, refactoring)
-- \`epic\` - Large feature with subtasks
-- \`chore\` - Maintenance (dependencies, tooling)
-
-### Priorities
-
-- \`0\` - Critical (security, data loss, broken builds)
-- \`1\` - High (major features, important bugs)
-- \`2\` - Medium (default, nice-to-have)
-- \`3\` - Low (polish, optimization)
-- \`4\` - Backlog (future ideas)
-
-### Workflow for AI Agents
-
-1. **Check ready work**: \`lb ready --json\` shows your unblocked issues (+ unassigned)
-2. **Claim your task**: \`lb update <id> --status in_progress --json\`
-3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue (auto-assigned to you):
-   - \`lb create "Found bug" -p 1 --deps discovered-from:<parent-id> --json\`
-5. **Complete**: \`lb close <id> --reason "Done" --json\`
-
-**Assignee behavior:**
-- \`lb create\` auto-assigns to you (use \`--unassign\` to skip)
-- \`lb ready\` shows your issues + unassigned (use \`--all\` for everyone's)
-- \`lb import\` assigns all imported issues to you
-
-### Background Sync
-
-lb automatically syncs changes to Linear in the background:
-
-- Write commands (create/update/close) return immediately after queuing
-- A background worker process pushes changes to Linear asynchronously
-- Linear may be slightly behind - eventual consistency
-- No manual sync needed - it's fire-and-forget!
-
-Commands accept \`--sync\` to push immediately (blocking) instead of queuing.
-
-### CLI Help
-
-Run \`lb <command> --help\` to see all available flags for any command.
-For example: \`lb create --help\` shows \`--parent\`, \`--deps\`, \`--type\`, etc.
-
-### Important Rules
-
-- Use lb for ALL task tracking
-- Always use \`--json\` flag for programmatic use
+- Use \`lb\` for ALL task tracking - no markdown TODOs
+- Check \`lb ready\` before asking what to work on
 - Link discovered work with \`--deps discovered-from:<id>\`
-- Check \`lb ready\` before asking "what should I work on?"
-- Changes sync automatically in background (fire-and-forget)
-- Use \`--sync\` flag only if you need immediate blocking sync
-- Do NOT create markdown TODO lists
-- Do NOT use external issue trackers
-- Do NOT duplicate tracking systems
+- Use \`--json\` flag when parsing output programmatically`;
+
+const ONBOARD_CONTENT = `# lb Onboard
+
+This repo uses \`lb\` for Linear-backed issue tracking.
+
+## Your Task
+
+**Add the following to this repo's AGENTS.md file** (create it if it doesn't exist).
+This ensures all future agents know to use \`lb\`:
+
+---
+
+${AGENTS_MD_CONTENT}
+
+---
+
+## Quick Reference
+
+\`\`\`bash
+lb ready --json              # Your unblocked work
+lb update LIN-X --status in_progress
+lb create "New issue" -p 1
+lb close LIN-X --reason "Done"
+\`\`\`
+
+After adding the above to AGENTS.md, you're ready to use \`lb ready\` to find work.
 `;
 
 export const onboardCommand = new Command("onboard")
