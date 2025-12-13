@@ -339,56 +339,64 @@ export async function fetchIssues(teamId: string): Promise<Issue[]> {
 }
 
 /**
- * Fetch relations for a set of issues
+ * Fetch relations for a set of issues (exported for background worker)
+ * Fetches in parallel batches for speed
  */
-async function fetchRelations(teamId: string, issueIds: string[]): Promise<void> {
+export async function fetchRelations(issueIds: string[]): Promise<void> {
   const client = getGraphQLClient();
+  const BATCH_SIZE = 10; // Parallel requests per batch
 
-  // Fetch relations in batches to avoid complexity limits
-  for (const issueId of issueIds) {
-    try {
-      const query = `
-        query GetIssueRelations($id: String!) {
-          issue(id: $id) {
-            identifier
-            relations {
-              nodes {
-                type
-                relatedIssue {
-                  identifier
-                }
-              }
+  const query = `
+    query GetIssueRelations($id: String!) {
+      issue(id: $id) {
+        identifier
+        relations {
+          nodes {
+            type
+            relatedIssue {
+              identifier
             }
           }
         }
-      `;
-
-      const result = await client.request<{
-        issue: {
-          identifier: string;
-          relations: {
-            nodes: Array<{
-              type: string;
-              relatedIssue: { identifier: string };
-            }>;
-          };
-        } | null;
-      }>(query, { id: issueId });
-
-      if (result.issue?.relations?.nodes) {
-        for (const rel of result.issue.relations.nodes) {
-          cacheDependency({
-            issue_id: result.issue.identifier,
-            depends_on_id: rel.relatedIssue.identifier,
-            type: rel.type === "blocks" ? "blocks" : "related",
-            created_at: new Date().toISOString(),
-            created_by: "sync",
-          });
-        }
       }
-    } catch {
-      // Ignore errors for individual relation fetches
     }
+  `;
+
+  // Process in parallel batches
+  for (let i = 0; i < issueIds.length; i += BATCH_SIZE) {
+    const batch = issueIds.slice(i, i + BATCH_SIZE);
+
+    await Promise.all(
+      batch.map(async (issueId) => {
+        try {
+          const result = await client.request<{
+            issue: {
+              identifier: string;
+              relations: {
+                nodes: Array<{
+                  type: string;
+                  relatedIssue: { identifier: string };
+                }>;
+              };
+            } | null;
+          }>(query, { id: issueId });
+
+          if (result.issue?.relations?.nodes) {
+            for (const rel of result.issue.relations.nodes) {
+              cacheDependency({
+                issue_id: result.issue.identifier,
+                depends_on_id: rel.relatedIssue.identifier,
+                type: rel.type === "blocks" ? "blocks" : "related",
+                created_at: new Date().toISOString(),
+                created_by: "sync",
+              });
+            }
+          }
+        } catch {
+          // Ignore errors for individual relation fetches
+        }
+      })
+    );
   }
 }
 
