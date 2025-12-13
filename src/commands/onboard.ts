@@ -40,6 +40,18 @@ lb create "Found this" --deps discovered-from:LIN-123 -d "Context from parent"
 - \`lb update LIN-123 --deps blocks:LIN-456\` - add blocking relation
 - \`lb close LIN-123 --reason "why"\` - close with reason
 
+### Blocking Semantics
+
+\`--deps blocks:LIN-X\` means "this issue blocks LIN-X" (LIN-X cannot start until this is done).
+
+Example: Phase 1 must complete before Phase 2 can start:
+\`\`\`bash
+lb update LIN-phase1 --deps blocks:LIN-phase2
+\`\`\`
+
+This makes LIN-phase2 blocked. It won't appear in \`lb ready\` until LIN-phase1 is closed.
+Children of blocked issues are also blocked.
+
 ### Rules
 
 - Use \`lb\` for ALL task tracking - no markdown TODOs
