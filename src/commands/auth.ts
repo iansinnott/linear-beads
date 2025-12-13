@@ -3,16 +3,31 @@
  */
 
 import { Command } from "commander";
-import { writeFileSync, mkdirSync, existsSync, chmodSync } from "fs";
-import { dirname } from "path";
-import { getGlobalConfigPath } from "../utils/config.js";
+import { writeFileSync, mkdirSync, existsSync, chmodSync, readFileSync, unlinkSync } from "fs";
+import { dirname, join } from "path";
+import { getGlobalConfigPath, getConfig } from "../utils/config.js";
 import { verifyConnection } from "../utils/linear.js";
 import { output } from "../utils/output.js";
 
 export const authCommand = new Command("auth")
   .description("Configure Linear API key globally")
   .option("--team <key>", "Also save team key to global config")
+  .option("--show", "Show current config source and masked key")
+  .option("--clear", "Remove global config")
   .action(async (options) => {
+    // Handle --show
+    if (options.show) {
+      showConfig();
+      return;
+    }
+
+    // Handle --clear
+    if (options.clear) {
+      clearConfig();
+      return;
+    }
+
+    // Main auth flow
     try {
       // Prompt for API key (masked)
       console.log("Enter your Linear API key (get one at https://linear.app/settings/api):");
@@ -130,4 +145,95 @@ async function promptPassword(): Promise<string> {
       }
     });
   });
+}
+
+/**
+ * Show current config source and masked key
+ */
+function showConfig(): void {
+  const config = getConfig();
+  const globalConfigPath = getGlobalConfigPath();
+
+  // Determine source (check in priority order)
+  let source = "not configured";
+  let apiKey = config.api_key;
+  
+  if (process.env.LINEAR_API_KEY) {
+    source = "environment variable (LINEAR_API_KEY)";
+  } else {
+    // Check for project config files
+    const projectConfigs = [
+      ".lb.json",
+      ".lb/config.json"
+    ];
+    
+    // Also check git root
+    const gitRoot = findGitRoot();
+    if (gitRoot) {
+      projectConfigs.push(join(gitRoot, ".lb.json"));
+      projectConfigs.push(join(gitRoot, ".lb", "config.json"));
+    }
+    
+    const hasProjectConfig = projectConfigs.some(p => existsSync(p));
+    
+    if (hasProjectConfig) {
+      source = "project config (.lb.json)";
+    } else if (existsSync(globalConfigPath)) {
+      source = `global config (${globalConfigPath})`;
+    }
+  }
+
+  output(`Config source: ${source}`);
+  
+  if (apiKey) {
+    output(`API key: ${maskKey(apiKey)}`);
+  } else {
+    output("API key: (not configured)");
+  }
+
+  const teamKey = config.team_key;
+  if (teamKey) {
+    output(`Team key: ${teamKey}`);
+  } else {
+    output("Team key: (auto-detected)");
+  }
+}
+
+/**
+ * Find git root directory
+ */
+function findGitRoot(): string | null {
+  let dir = process.cwd();
+  while (dir !== "/") {
+    if (existsSync(join(dir, ".git"))) {
+      return dir;
+    }
+    dir = dirname(dir);
+  }
+  return null;
+}
+
+/**
+ * Clear global config
+ */
+function clearConfig(): void {
+  const globalConfigPath = getGlobalConfigPath();
+  
+  if (!existsSync(globalConfigPath)) {
+    output("No global config to clear");
+    return;
+  }
+
+  unlinkSync(globalConfigPath);
+  output(`Global config removed: ${globalConfigPath}`);
+}
+
+/**
+ * Mask API key: show first 4 chars + *** + last 5 chars
+ */
+function maskKey(key: string): string {
+  if (key.length < 10) {
+    return "***";
+  }
+  return `${key.slice(0, 4)}***${key.slice(-5)}`;
 }
