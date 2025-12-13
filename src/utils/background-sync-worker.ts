@@ -9,6 +9,7 @@ import {
   getTeamId,
   createIssue,
   updateIssue,
+  updateIssueParent,
   closeIssue,
   createRelation,
   fetchIssues,
@@ -118,8 +119,18 @@ async function processOutboxItem(item: any, teamId: string): Promise<void> {
         status?: Issue["status"];
         priority?: Priority;
         deps?: string;
+        parentId?: string;
       };
       await updateIssue(payload.issueId, payload, teamId);
+
+      // Handle parent after update
+      if (payload.parentId) {
+        try {
+          await updateIssueParent(payload.issueId, payload.parentId);
+        } catch {
+          // Ignore parent update failures in background
+        }
+      }
 
       // Handle deps after update
       if (payload.deps) {

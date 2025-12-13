@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { queueOutboxItem, getCachedIssue } from "../utils/database.js";
 import {
   updateIssue,
+  updateIssueParent,
   getTeamId,
   fetchIssue,
   getViewer,
@@ -36,6 +37,7 @@ export const updateCommand = new Command("update")
   .option("-p, --priority <priority>", "New priority (0-4)")
   .option("--assign <email>", "Assign to user (email or 'me')")
   .option("--unassign", "Remove assignee")
+  .option("--parent <id>", "Set parent issue")
   .option("--deps <deps>", "Add relations (e.g., 'blocks:LIN-123,related:LIN-456')")
   .option("-j, --json", "Output as JSON")
   .option("--sync", "Sync immediately (block on network)")
@@ -89,7 +91,7 @@ export const updateCommand = new Command("update")
         }
       }
 
-      if (Object.keys(updates).length === 0 && !options.deps) {
+      if (Object.keys(updates).length === 0 && !options.deps && !options.parent) {
         outputError("No updates specified");
         process.exit(1);
       }
@@ -103,6 +105,17 @@ export const updateCommand = new Command("update")
           issue = await updateIssue(id, updates, teamId);
         } else {
           issue = await fetchIssue(id);
+        }
+
+        // Handle parent
+        if (options.parent) {
+          try {
+            await updateIssueParent(id, options.parent);
+          } catch (error) {
+            outputError(
+              `Failed to set parent to ${options.parent}: ${error instanceof Error ? error.message : error}`
+            );
+          }
         }
 
         // Handle deps
@@ -138,6 +151,7 @@ export const updateCommand = new Command("update")
         if (options.assign) payload.assign = options.assign;
         if (options.unassign) payload.unassign = true;
         if (options.deps) payload.deps = options.deps;
+        if (options.parent) payload.parentId = options.parent;
         // Remove assigneeId from payload - worker will resolve it
         delete payload.assigneeId;
 
