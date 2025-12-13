@@ -37,20 +37,25 @@ lb create "Found this" --deps discovered-from:LIN-123 -d "Context from parent"
 - \`lb list\` - all issues
 - \`lb show LIN-123\` - issue details with description
 - \`lb update LIN-123 --status in_progress\` - update status
+- \`lb update LIN-123 --parent LIN-100\` - set parent (make subtask)
 - \`lb update LIN-123 --deps blocks:LIN-456\` - add blocking relation
 - \`lb close LIN-123 --reason "why"\` - close with reason
 
-### Blocking Semantics
+### Relationships
 
-\`--deps blocks:LIN-X\` means "this issue blocks LIN-X" (LIN-X cannot start until this is done).
-
-Example: Phase 1 must complete before Phase 2 can start:
+**Parent/Child (subtasks):**
 \`\`\`bash
-lb update LIN-phase1 --deps blocks:LIN-phase2
+lb create "Subtask" --parent LIN-epic       # create as child
+lb update LIN-task --parent LIN-epic        # move under parent
 \`\`\`
+Children of blocked parents are also blocked and won't appear in \`lb ready\`.
 
-This makes LIN-phase2 blocked. It won't appear in \`lb ready\` until LIN-phase1 is closed.
-Children of blocked issues are also blocked.
+**Blocking:**
+\`--deps blocks:LIN-X\` means "this issue blocks LIN-X" (LIN-X cannot start until this is done).
+\`\`\`bash
+lb update LIN-phase1 --deps blocks:LIN-phase2   # phase1 blocks phase2
+\`\`\`
+LIN-phase2 won't appear in \`lb ready\` until LIN-phase1 is closed.
 
 ### Rules
 
