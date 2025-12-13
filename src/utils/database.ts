@@ -287,12 +287,13 @@ export function getDependents(issueId: string): Dependency[] {
 
 /**
  * Get issues that are blocked by open issues
+ * Also includes children of blocked issues (they inherit blocking from parent)
  */
 export function getBlockedIssueIds(): Set<string> {
   const db = getDatabase();
-  // An issue is blocked if another open issue blocks it
-  // If dep = {issue_id: A, depends_on_id: B, type: blocks}, then A blocks B, so B is blocked
-  const rows = db
+
+  // Direct blocks: if dep = {issue_id: A, depends_on_id: B, type: blocks}, then A blocks B
+  const directlyBlocked = db
     .query(
       `
     SELECT DISTINCT d.depends_on_id as blocked_id
@@ -303,7 +304,32 @@ export function getBlockedIssueIds(): Set<string> {
     )
     .all() as Array<{ blocked_id: string }>;
 
-  return new Set(rows.map((r) => r.blocked_id));
+  const blocked = new Set(directlyBlocked.map((r) => r.blocked_id));
+
+  // Recursively add children of blocked issues
+  // Children have parent-child dep where child.depends_on_id = parent.id
+  let added = true;
+  while (added) {
+    added = false;
+    const children = db
+      .query(
+        `
+      SELECT DISTINCT d.issue_id as child_id
+      FROM dependencies d
+      WHERE d.type = 'parent-child' AND d.depends_on_id IN (${[...blocked].map(() => "?").join(",") || "''"})
+    `
+      )
+      .all(...blocked) as Array<{ child_id: string }>;
+
+    for (const child of children) {
+      if (!blocked.has(child.child_id)) {
+        blocked.add(child.child_id);
+        added = true;
+      }
+    }
+  }
+
+  return blocked;
 }
 
 /**
