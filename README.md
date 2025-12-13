@@ -4,8 +4,8 @@
 
 ## Features
 
-- **bd-compatible CLI** - Same commands and flags you know from beads
-- **bd-compatible JSON** - snake_case, arrays, terse output
+- **bd-inspired CLI** - Similar commands and workflow as beads
+- **bd-style JSON** - snake_case keys, arrays, terse output for AI agents
 - **Offline-first** - Local SQLite cache + outbox queue
 - **Repo scoping** - Issues filtered by `repo:name` label
 - **Background sync** - Automatic async push to Linear (fire-and-forget)
@@ -32,7 +32,7 @@ Set your Linear API key:
 
 ```bash
 export LINEAR_API_KEY=lin_api_xxxxx
-export LB_TEAM_KEY=MYTEAM  # Your Linear team key
+export LB_TEAM_KEY=MYTEAM  # Optional: auto-detected if you have only one team
 ```
 
 Or create `.lb.json`:
@@ -40,7 +40,7 @@ Or create `.lb.json`:
 ```json
 {
   "api_key": "lin_api_xxxxx",
-  "team_key": "MYTEAM"
+  "team_key": "MYTEAM"  // Optional: auto-detected for single-team users
 }
 ```
 
@@ -86,7 +86,7 @@ lb sync
 ## Options
 
 All commands support:
-- `-j, --json` - Output as JSON (bd-compatible format)
+- `-j, --json` - Output as JSON (bd-style format)
 - `--sync` - Force immediate sync (don't queue)
 - `--team <key>` - Override team key
 
@@ -113,9 +113,9 @@ All commands support:
 ```
 lb-cli/
 ├── src/
-│   ├── cli.ts              # Main entry point
-│   ├── types.ts            # Core types + Linear mappings
-│   ├── commands/           # CLI commands
+│   ├── cli.ts                      # Main entry point
+│   ├── types.ts                    # Core types + Linear mappings
+│   ├── commands/                   # CLI commands
 │   │   ├── list.ts
 │   │   ├── ready.ts
 │   │   ├── show.ts
@@ -125,14 +125,18 @@ lb-cli/
 │   │   ├── sync.ts
 │   │   └── onboard.ts
 │   └── utils/
-│       ├── config.ts       # Config loading
-│       ├── database.ts     # SQLite cache + outbox
-│       ├── graphql.ts      # Linear API client
-│       ├── linear.ts       # Linear operations
-│       ├── output.ts       # JSON formatting
-│       └── sync.ts         # Sync logic
+│       ├── config.ts               # Config loading
+│       ├── database.ts             # SQLite cache + outbox
+│       ├── graphql.ts              # Linear API client
+│       ├── linear.ts               # Linear operations
+│       ├── output.ts               # JSON formatting
+│       ├── sync.ts                 # Sync logic
+│       ├── pid-manager.ts          # Background worker PID management
+│       ├── background-sync-worker.ts  # Background sync worker
+│       └── spawn-worker.ts         # Worker spawning helper
 └── .lb/
-    └── cache.db            # Local SQLite (git-ignored)
+    ├── cache.db                    # Local SQLite (git-ignored)
+    └── sync.pid                    # Worker PID (created/removed dynamically)
 ```
 
 ## How it Works
