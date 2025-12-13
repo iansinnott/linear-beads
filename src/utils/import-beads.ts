@@ -142,7 +142,7 @@ export async function checkDuplicates(
   for (const issue of issues) {
     // Search Linear for issues with matching title
     const query = `
-      query SearchIssues($teamId: String!, $title: String!) {
+      query SearchIssues($teamId: ID!, $title: String!) {
         issues(filter: {
           team: { id: { eq: $teamId } }
           title: { containsIgnoreCase: $title }
