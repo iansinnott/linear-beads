@@ -364,6 +364,30 @@ export async function fetchIssue(issueId: string): Promise<Issue | null> {
 }
 
 /**
+ * Resolve issue identifier (e.g., LIN-123) to UUID
+ */
+export async function resolveIssueId(issueId: string): Promise<string | null> {
+  const client = getGraphQLClient();
+
+  const query = `
+    query GetIssue($id: String!) {
+      issue(id: $id) {
+        id
+      }
+    }
+  `;
+
+  try {
+    const result = await client.request<{ issue: { id: string } | null }>(query, {
+      id: issueId,
+    });
+    return result.issue?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create issue in Linear
  */
 export async function createIssue(params: {
@@ -381,6 +405,15 @@ export async function createIssue(params: {
   const repoLabelId = await ensureRepoLabel(params.teamId);
   const typeLabelId = await ensureTypeLabel(params.teamId, params.issueType);
   const stateId = await getWorkflowStateId(params.teamId, "open");
+
+  // Resolve parentId if provided (identifier -> UUID)
+  let parentUuid: string | undefined;
+  if (params.parentId) {
+    parentUuid = (await resolveIssueId(params.parentId)) || undefined;
+    if (!parentUuid) {
+      throw new Error(`Parent issue not found: ${params.parentId}`);
+    }
+  }
 
   const mutation = `
     mutation CreateIssue($input: IssueCreateInput!) {
@@ -400,7 +433,7 @@ export async function createIssue(params: {
     teamId: params.teamId,
     stateId,
     labelIds: [repoLabelId, typeLabelId],
-    parentId: params.parentId,
+    parentId: parentUuid,
   };
 
   if (params.assigneeId) {
