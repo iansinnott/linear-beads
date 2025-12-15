@@ -22,14 +22,28 @@ const VALID_DEP_TYPES = ["blocks", "related"];
 
 /**
  * Parse deps string into array of {type, targetId}
+ * Format: "type:id,type:id" e.g. "blocks:LIN-123,related:LIN-456"
  */
 function parseDeps(deps: string): Array<{ type: string; targetId: string }> {
   if (!deps) return [];
   return deps.split(",").map((dep) => {
-    const [type, targetId] = dep.trim().split(":");
+    const trimmed = dep.trim();
+    if (!trimmed.includes(":")) {
+      console.error(
+        `Invalid dep format '${trimmed}'. Expected 'type:ID' (e.g. 'blocks:LIN-123'). Valid types: ${VALID_DEP_TYPES.join(", ")}`
+      );
+      process.exit(1);
+    }
+    const [type, targetId] = trimmed.split(":");
     if (!VALID_DEP_TYPES.includes(type)) {
       console.error(
         `Invalid dep type '${type}'. Valid types: ${VALID_DEP_TYPES.join(", ")}. For subtasks use --parent instead.`
+      );
+      process.exit(1);
+    }
+    if (!targetId) {
+      console.error(
+        `Missing issue ID in dep '${trimmed}'. Expected 'type:ID' (e.g. 'blocks:LIN-123')`
       );
       process.exit(1);
     }
