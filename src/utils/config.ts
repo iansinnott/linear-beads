@@ -14,6 +14,7 @@ import type { HttpsLbCliDevConfigSchemaJson as ConfigTypes } from "../types/conf
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readFileSync } from "fs";
+import { parse as parseJsonc } from "jsonc-parser";
 
 // Combined config type that includes both schema-defined options and legacy env var options
 interface LoadedConfig extends ConfigTypes {
@@ -35,31 +36,48 @@ export function getGlobalConfigPath(): string {
  * Get per-repo config path (from git root or cwd)
  */
 export function getRepoConfigPath(): string {
-  // Find git root or use cwd
-  let dir = process.cwd();
-  while (dir !== "/") {
-    if (existsSync(join(dir, ".git"))) {
-      break;
-    }
-    dir = join(dir, "..");
-  }
-  return join(dir, ".lb", "config.jsonc");
+  const gitRoot = findGitRootDir();
+  const baseDir = gitRoot || process.cwd();
+  return join(baseDir, ".lb", "config.jsonc");
 }
 
 /**
- * Parse JSONC file (handles comments)
- * Returns null if file doesn't exist or is invalid
+ * Parse a JSON or JSONC file, tolerating comments.
  */
-export function parseJsoncFile(path: string): Record<string, unknown> | null {
+function parseJsonLikeFile(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
   try {
-    if (!existsSync(path)) return null;
     const content = readFileSync(path, "utf-8");
-    // Strip single-line comments (//)
-    const withoutComments = content.replace(/\/\/.*$/gm, "");
-    return JSON.parse(withoutComments);
+    const data = parseJsonc(content);
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      return data as Record<string, unknown>;
+    }
   } catch {
-    return null;
+    // Ignore parse errors so callers can fall back to the next file
   }
+  return null;
+}
+
+/**
+ * Load a config layer by preferring .jsonc and falling back to .json.
+ */
+function loadConfigLayer(primaryPath: string): Record<string, unknown> | null {
+  const candidates: string[] = [primaryPath];
+
+  if (primaryPath.endsWith(".jsonc")) {
+    candidates.push(primaryPath.replace(/\.jsonc$/, ".json"));
+  } else if (primaryPath.endsWith(".json")) {
+    candidates.unshift(primaryPath.replace(/\.json$/, ".jsonc"));
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseJsonLikeFile(candidate);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -150,14 +168,14 @@ function loadConfig(): LoadedConfig {
 
   // 1. Load global config (~/.config/lb/config.jsonc)
   const globalConfigPath = getGlobalConfigPath();
-  const globalConfig = parseJsoncFile(globalConfigPath);
+  const globalConfig = loadConfigLayer(globalConfigPath);
   if (globalConfig) {
     config = deepMerge(config, globalConfig as Partial<LoadedConfig>);
   }
 
   // 2. Load per-repo config (.lb/config.jsonc) - overrides global
   const repoConfigPath = getRepoConfigPath();
-  const repoConfig = parseJsoncFile(repoConfigPath);
+  const repoConfig = loadConfigLayer(repoConfigPath);
   if (repoConfig) {
     config = deepMerge(config, repoConfig as Partial<LoadedConfig>);
   }
