@@ -191,7 +191,15 @@ export function labelToIssueType(labels: string[]): IssueType | undefined {
   return undefined;
 }
 
-
+/**
+ * Map Linear priority to bd priority
+ * Linear: 0=none, 1=urgent, 2=high, 3=medium, 4=low
+ * bd: 0=critical, 1=high, 2=medium, 3=low, 4=backlog
+ */
+export function linearToPriority(linearPriority: number): Priority {
+  if (linearPriority === 0) return 4;
+  return (linearPriority - 1) as Priority;
+}
 
 /**
  * Map bd priority (0=critical) to Linear priority (1=urgent, 0=none)
