@@ -9,12 +9,16 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test";
+import { GraphQLClient } from "graphql-request";
 
 // Increase timeout for API calls
 setDefaultTimeout(30000);
 
 const TEAM_KEY = process.env.LB_TEAM_KEY || "LIN";
 const TEST_PREFIX = `[test-${Date.now()}]`;
+
+// Track all test issue IDs for cleanup
+const testIssueIds: string[] = [];
 
 // Helper to run lb commands
 async function lb(
@@ -43,6 +47,55 @@ async function lbJson<T>(...args: string[]): Promise<T> {
   return JSON.parse(result.stdout);
 }
 
+// Helper to create test issue and track for cleanup
+async function createTestIssue(title: string, ...extraArgs: string[]): Promise<{ id: string; title: string }> {
+  const result = await lbJson<Array<{ id: string; title: string }>>(
+    "create",
+    `${TEST_PREFIX} ${title}`,
+    "--sync",
+    ...extraArgs
+  );
+  if (result[0].id !== "pending") {
+    testIssueIds.push(result[0].id);
+  }
+  return result[0];
+}
+
+// Delete issues directly via GraphQL (cleanup must succeed even if lb has bugs)
+async function deleteTestIssues(): Promise<void> {
+  if (!process.env.LINEAR_API_KEY) return;
+
+  const client = new GraphQLClient("https://api.linear.app/graphql", {
+    headers: { Authorization: process.env.LINEAR_API_KEY },
+  });
+
+  // First sync to get any pending issues created
+  await lb("sync");
+
+  // Get all issues that match our test prefix
+  const allIssues = await lbJson<Array<{ id: string; title: string }>>("list", "--all");
+  const testIssues = allIssues.filter((i) => i.title.includes(TEST_PREFIX));
+
+  // Combine tracked IDs with any found by prefix (in case tracking missed some)
+  const idsToDelete = [...new Set([...testIssueIds, ...testIssues.map((i) => i.id)])];
+
+  // Delete each issue
+  for (const id of idsToDelete) {
+    try {
+      await client.request(
+        `mutation DeleteIssue($id: String!) {
+          issueDelete(id: $id) {
+            success
+          }
+        }`,
+        { id }
+      );
+    } catch {
+      // Ignore deletion errors (issue might already be deleted)
+    }
+  }
+}
+
 describe("lb CLI Integration Tests", () => {
   beforeAll(async () => {
     // Verify API key is set
@@ -55,25 +108,8 @@ describe("lb CLI Integration Tests", () => {
   });
 
   afterAll(async () => {
-    // Sync first to push any pending items
-    await lb("sync");
-
-    // Get all issues with our test prefix
-    const allIssues = await lbJson<Array<{ id: string; title: string; status: string }>>("list");
-
-    // Close all test issues that aren't already closed
-    for (const issue of allIssues) {
-      if (issue.title.includes(TEST_PREFIX) && issue.status !== "closed") {
-        try {
-          await lb("close", issue.id, "--reason", "Integration test cleanup", "--sync");
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    }
-
-    // Final sync to ensure cleanup is complete
-    await lb("sync");
+    // Delete all test issues (uses GraphQL directly for reliability)
+    await deleteTestIssues();
   });
 
   describe("whoami", () => {
