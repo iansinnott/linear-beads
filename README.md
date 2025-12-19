@@ -2,7 +2,7 @@
 
 Linear-backed issue tracking for AI agents. Inspired by [beads](https://github.com/steveyegge/beads).
 
-`lb` gives you beads-style issue tracking with Linear as the backend. Your issues live in Linear where you can see them, but agents interact through a fast CLI with JSON output, background sync, and dependency tracking.
+`lb` gives you beads-style issue tracking with Linear as the backend. Your issues live in Linear where you can see them, but agents interact through a fast CLI with JSON output, background sync, and dependency tracking. Backward-compatible interop (import/export) with [beads](https://github.com/steveyegge/beads) issues.jsonl.
 
 ## Install
 
