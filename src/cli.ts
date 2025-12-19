@@ -44,20 +44,25 @@ if (process.argv.includes("--worker")) {
     process.exit(1);
   }
 } else {
-  // Add subcommands
+  // Add subcommands (grouped by purpose)
+  // Setup
   program.addCommand(initCommand);
   program.addCommand(authCommand);
-  program.addCommand(importCommand);
+  program.addCommand(onboardCommand);
+
+  // Issue operations
   program.addCommand(listCommand);
   program.addCommand(readyCommand);
   program.addCommand(showCommand);
   program.addCommand(createCommand);
   program.addCommand(updateCommand);
   program.addCommand(closeCommand);
+
+  // Sync & interop
   program.addCommand(syncCommand);
-  program.addCommand(onboardCommand);
-  program.addCommand(migrateCommand);
+  program.addCommand(importCommand);
   program.addCommand(exportCommand);
+  program.addCommand(migrateCommand);
 
   // Add whoami command for testing connection
   program
