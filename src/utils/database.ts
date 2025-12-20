@@ -336,11 +336,29 @@ export function deleteDependency(issueId: string, dependsOnId: string): void {
 }
 
 /**
- * Get dependencies for an issue
+ * Get dependencies for an issue (outgoing: this issue depends on others)
  */
 export function getDependencies(issueId: string): Dependency[] {
   const db = getDatabase();
   const rows = db.query("SELECT * FROM dependencies WHERE issue_id = ?").all(issueId) as Array<
+    Record<string, unknown>
+  >;
+
+  return rows.map((row) => ({
+    issue_id: row.issue_id as string,
+    depends_on_id: row.depends_on_id as string,
+    type: row.type as Dependency["type"],
+    created_at: row.created_at as string,
+    created_by: row.created_by as string,
+  }));
+}
+
+/**
+ * Get inverse dependencies for an issue (incoming: others depend on this issue)
+ */
+export function getInverseDependencies(issueId: string): Dependency[] {
+  const db = getDatabase();
+  const rows = db.query("SELECT * FROM dependencies WHERE depends_on_id = ?").all(issueId) as Array<
     Record<string, unknown>
   >;
 
