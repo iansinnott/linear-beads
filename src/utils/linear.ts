@@ -840,6 +840,32 @@ export async function createRelation(
 }
 
 /**
+ * Delete an issue from Linear
+ */
+export async function deleteIssue(issueId: string): Promise<void> {
+  const client = getGraphQLClient();
+
+  // Resolve identifier to UUID if needed
+  const issueUuid = (await resolveIssueId(issueId)) || issueId;
+
+  const mutation = `
+    mutation DeleteIssue($id: String!) {
+      issueDelete(id: $id) {
+        success
+      }
+    }
+  `;
+
+  const result = await client.request<{
+    issueDelete: { success: boolean };
+  }>(mutation, { id: issueUuid });
+
+  if (!result.issueDelete.success) {
+    throw new Error("Failed to delete issue");
+  }
+}
+
+/**
  * Add comment to an issue
  */
 export async function addComment(issueId: string, body: string): Promise<void> {

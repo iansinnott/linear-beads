@@ -498,6 +498,16 @@ export function clearIssuesCache(): void {
 }
 
 /**
+ * Delete a single issue from cache
+ */
+export function deleteCachedIssue(issueId: string): void {
+  const db = getDatabase();
+  db.run("DELETE FROM issues WHERE id = ?", [issueId]);
+  db.run("DELETE FROM dependencies WHERE issue_id = ? OR depends_on_id = ?", [issueId, issueId]);
+  requestJsonlExport();
+}
+
+/**
  * Cache a label
  */
 export function cacheLabel(id: string, name: string, teamId?: string): void {

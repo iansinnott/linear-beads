@@ -11,6 +11,7 @@ import {
   updateIssue,
   updateIssueParent,
   closeIssue,
+  deleteIssue,
   createRelation,
   fetchIssues,
   fetchRelations,
@@ -166,6 +167,14 @@ async function processOutboxItem(item: any, teamId: string): Promise<void> {
         type: "blocks" | "related";
       };
       await createRelation(payload.issueId, payload.relatedIssueId, payload.type);
+      break;
+    }
+
+    case "delete": {
+      const payload = item.payload as {
+        issueId: string;
+      };
+      await deleteIssue(payload.issueId);
       break;
     }
 
