@@ -325,6 +325,17 @@ export function clearIssueDependencies(issueId: string): void {
 }
 
 /**
+ * Delete a specific dependency between two issues
+ */
+export function deleteDependency(issueId: string, dependsOnId: string): void {
+  const db = getDatabase();
+  db.run("DELETE FROM dependencies WHERE issue_id = ? AND depends_on_id = ?", [issueId, dependsOnId]);
+  // Also try the reverse direction
+  db.run("DELETE FROM dependencies WHERE issue_id = ? AND depends_on_id = ?", [dependsOnId, issueId]);
+  requestJsonlExport();
+}
+
+/**
  * Get dependencies for an issue
  */
 export function getDependencies(issueId: string): Dependency[] {
