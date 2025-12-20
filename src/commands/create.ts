@@ -79,10 +79,10 @@ export const createCommand = new Command("create")
           process.exit(1);
         }
         if (!useTypes()) {
-          console.error(`Issue types are disabled. Enable with 'use_types: true' in config, or remove -t flag.`);
-          process.exit(1);
+          console.warn(`Warning: -t ignored (issue types disabled in config)`);
+        } else {
+          issueType = options.type as IssueType;
         }
-        issueType = options.type as IssueType;
       }
 
       // Validate deps early before creating anything

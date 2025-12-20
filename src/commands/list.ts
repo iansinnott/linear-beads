@@ -54,14 +54,14 @@ export const listCommand = new Command("list")
       }
       if (options.type) {
         if (!useTypes()) {
-          console.error(`Issue types are disabled. Enable with 'use_types: true' in config.`);
-          process.exit(1);
+          console.warn(`Warning: -t ignored (issue types disabled in config)`);
+        } else {
+          if (!VALID_ISSUE_TYPES.includes(options.type)) {
+            console.error(`Invalid type '${options.type}'. Must be one of: ${VALID_ISSUE_TYPES.join(", ")}`);
+            process.exit(1);
+          }
+          issues = issues.filter((i) => i.issue_type === options.type);
         }
-        if (!VALID_ISSUE_TYPES.includes(options.type)) {
-          console.error(`Invalid type '${options.type}'. Must be one of: ${VALID_ISSUE_TYPES.join(", ")}`);
-          process.exit(1);
-        }
-        issues = issues.filter((i) => i.issue_type === options.type);
       }
 
       // Sort by priority, then updated_at

@@ -16,8 +16,10 @@ import { closeCommand } from "./commands/close.js";
 import { syncCommand } from "./commands/sync.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { migrateCommand } from "./commands/migrate.js";
+import { exportCommand } from "./commands/export.js";
 import { verifyConnection } from "./utils/linear.js";
 import { closeDatabase } from "./utils/database.js";
+import { exportToJsonl } from "./utils/jsonl.js";
 import { processOutbox } from "./utils/background-sync-worker.js";
 
 const program = new Command();
@@ -26,26 +28,46 @@ program
   .name("lb")
   .description("Linear-native beads-style issue tracker")
   .version("0.1.0")
-  .option("--worker", "Internal: run background sync worker");
+  .option("--worker", "Internal: run background sync worker")
+  .option("--export-worker", "Internal: run JSONL export worker")
+  .configureHelp({
+    subcommandTerm: (cmd) => {
+      const args = cmd.registeredArguments.map((a) => (a.required ? `<${a.name()}>` : `[${a.name()}]`));
+      return args.length ? `${cmd.name()} ${args.join(" ")}` : cmd.name();
+    },
+  });
 
 // Check for --worker flag before parsing commands
 if (process.argv.includes("--worker")) {
   processOutbox()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
+} else if (process.argv.includes("--export-worker")) {
+  try {
+    exportToJsonl();
+    process.exit(0);
+  } catch {
+    process.exit(1);
+  }
 } else {
-  // Add subcommands
+  // Add subcommands (grouped by purpose)
+  // Setup
   program.addCommand(initCommand);
   program.addCommand(authCommand);
-  program.addCommand(importCommand);
+  program.addCommand(onboardCommand);
+
+  // Issue operations
   program.addCommand(listCommand);
   program.addCommand(readyCommand);
   program.addCommand(showCommand);
   program.addCommand(createCommand);
   program.addCommand(updateCommand);
   program.addCommand(closeCommand);
+
+  // Sync & interop
   program.addCommand(syncCommand);
-  program.addCommand(onboardCommand);
+  program.addCommand(importCommand);
+  program.addCommand(exportCommand);
   program.addCommand(migrateCommand);
 
   // Add whoami command for testing connection
