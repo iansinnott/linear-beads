@@ -117,14 +117,6 @@ ${AGENTS_MD_CONTENT}
 
 ---
 
-## Git Workflow
-
-Commit atomically as you work (one logical change per commit) unless told otherwise.
-
-Don't commit AGENTS.md or .lb - they're in .git/info/exclude for a reason.
-
----
-
 After adding the above to AGENTS.md, run \`lb sync\` then \`lb ready\` to find work.
 `;
 
