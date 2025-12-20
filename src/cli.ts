@@ -14,6 +14,7 @@ import { createCommand } from "./commands/create.js";
 import { updateCommand } from "./commands/update.js";
 import { closeCommand } from "./commands/close.js";
 import { deleteCommand } from "./commands/delete.js";
+import { depCommand } from "./commands/dep.js";
 import { syncCommand } from "./commands/sync.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { migrateCommand } from "./commands/migrate.js";
@@ -65,6 +66,7 @@ if (process.argv.includes("--worker")) {
   program.addCommand(updateCommand);
   program.addCommand(closeCommand);
   program.addCommand(deleteCommand);
+  program.addCommand(depCommand);
 
   // Sync & interop
   program.addCommand(syncCommand);
