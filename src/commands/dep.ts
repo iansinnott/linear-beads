@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { createRelation, deleteRelation } from "../utils/linear.js";
 import { getDependencies, getCachedIssue, getDatabase } from "../utils/database.js";
 import { output, outputError } from "../utils/output.js";
+import { queueOperation } from "../utils/spawn-worker.js";
 import type { Dependency } from "../types.js";
 
 /**
@@ -78,6 +79,7 @@ const addCommand = new Command("add")
   .option("--blocks <id>", "This issue blocks the specified issue")
   .option("--blocked-by <id>", "This issue is blocked by the specified issue")
   .option("--related <id>", "This issue is related to the specified issue")
+  .option("--sync", "Sync immediately (block on network)")
   .action(async (issueId: string, options) => {
     try {
       const hasOption = options.blocks || options.blockedBy || options.related;
@@ -87,18 +89,42 @@ const addCommand = new Command("add")
       }
 
       if (options.blocks) {
-        await createRelation(issueId, options.blocks, "blocks");
+        if (options.sync) {
+          await createRelation(issueId, options.blocks, "blocks");
+        } else {
+          queueOperation("create_relation", {
+            issueId,
+            relatedIssueId: options.blocks,
+            type: "blocks",
+          });
+        }
         output(`Added: ${issueId} blocks ${options.blocks}`);
       }
 
       if (options.blockedBy) {
         // blocked-by is inverse: target blocks this issue
-        await createRelation(options.blockedBy, issueId, "blocks");
+        if (options.sync) {
+          await createRelation(options.blockedBy, issueId, "blocks");
+        } else {
+          queueOperation("create_relation", {
+            issueId: options.blockedBy,
+            relatedIssueId: issueId,
+            type: "blocks",
+          });
+        }
         output(`Added: ${issueId} is blocked by ${options.blockedBy}`);
       }
 
       if (options.related) {
-        await createRelation(issueId, options.related, "related");
+        if (options.sync) {
+          await createRelation(issueId, options.related, "related");
+        } else {
+          queueOperation("create_relation", {
+            issueId,
+            relatedIssueId: options.related,
+            type: "related",
+          });
+        }
         output(`Added: ${issueId} related to ${options.related}`);
       }
     } catch (error) {
@@ -112,9 +138,17 @@ const removeCommand = new Command("remove")
   .description("Remove a dependency between issues")
   .argument("<issue-a>", "First issue ID")
   .argument("<issue-b>", "Second issue ID")
-  .action(async (issueA: string, issueB: string) => {
+  .option("--sync", "Sync immediately (block on network)")
+  .action(async (issueA: string, issueB: string, options) => {
     try {
-      await deleteRelation(issueA, issueB);
+      if (options.sync) {
+        await deleteRelation(issueA, issueB);
+      } else {
+        queueOperation("delete_relation", {
+          issueA,
+          issueB,
+        });
+      }
       output(`Removed dependency between ${issueA} and ${issueB}`);
     } catch (error) {
       outputError(error instanceof Error ? error.message : String(error));

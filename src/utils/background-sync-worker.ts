@@ -16,6 +16,7 @@ import {
   closeIssue,
   deleteIssue,
   createRelation,
+  deleteRelation,
   fetchIssues,
 } from "./linear.js";
 import { exportToJsonl } from "./jsonl.js";
@@ -216,6 +217,15 @@ async function processOutboxItem(item: any, teamId: string): Promise<void> {
         issueId: string;
       };
       await deleteIssue(payload.issueId);
+      break;
+    }
+
+    case "delete_relation": {
+      const payload = item.payload as {
+        issueA: string;
+        issueB: string;
+      };
+      await deleteRelation(payload.issueA, payload.issueB);
       break;
     }
 
