@@ -3,7 +3,7 @@
  * Ensures only one sync worker runs per repo at a time
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, statSync, utimesSync } from "fs";
 import { join, dirname } from "path";
 import { getDbPath } from "./config.js";
 
@@ -90,6 +90,31 @@ export function removePidFile(): void {
     } catch {
       // Ignore errors - file might not exist
     }
+  }
+}
+
+/**
+ * Get PID file mtime (for detecting "stay alive" signals)
+ * Returns 0 if file doesn't exist
+ */
+export function getPidFileMtime(): number {
+  const pidFile = getPidFilePath();
+  try {
+    const stat = statSync(pidFile);
+    return stat.mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Touch PID file to signal worker to stay alive
+ */
+export function touchPidFile(): void {
+  const pidFile = getPidFilePath();
+  if (existsSync(pidFile)) {
+    const now = new Date();
+    utimesSync(pidFile, now, now);
   }
 }
 
