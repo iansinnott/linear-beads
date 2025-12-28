@@ -1,5 +1,35 @@
 # Changelog
 
+## v9
+
+- **Claude Code support**: `lb onboard` now tells agents to use CLAUDE.md (Claude Code) or AGENTS.md (other tools)
+
+## v8
+
+- **Local-only mode**: Run `lb` entirely without Linear by setting `local_only: true` in config. Creates LOCAL-001, LOCAL-002, etc. IDs
+- **Offline mode**: Graceful handling when network is unavailable - reads work from cache, writes queue in outbox
+
+## v7
+
+- **Outbox reliability fixes**: Self-healing outbox with stale item detection, synchronous processing for guaranteed delivery
+- **Subtask status propagation**: Closing all subtasks of a parent now propagates status to parent
+- **Background worker improvements**: PID file touch signaling, 5s idle timeout polling
+
+## v6
+
+- **`lb dep` subcommand**: Manage dependencies with `lb dep add`, `lb dep remove`, `lb dep tree`
+- **`lb blocked` command**: Show issues waiting on blockers with reasons
+- **`lb delete` command**: Delete issues with background sync support
+- **Explicit dependency flags**: `--blocks`, `--blocked-by`, `--related`, `--discovered-from` on create
+- **Better relationship display**: `lb show` displays bidirectional relationships, `lb list` shows parent ID for subtasks
+- **Improved `lb ready` output**: Count, numbering, and parent context
+
+## v5
+
+- **`lb export` command**: Beads-compatible JSONL export for interop
+- **Background JSONL export**: Debounced auto-export to `.lb/issues.jsonl`
+- **Cleaner CLI help**: Grouped subcommands by purpose, hidden `[options]` noise
+
 ## v4
 
 ### Features
