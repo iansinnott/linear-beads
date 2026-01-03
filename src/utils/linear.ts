@@ -3,7 +3,7 @@
  */
 
 import { getGraphQLClient, ISSUE_FRAGMENT, ISSUE_WITH_RELATIONS_FRAGMENT } from "./graphql.js";
-import { getRepoLabel, getTeamKey, useTypes } from "./config.js";
+import { getRepoLabel, getTeamKey, useTypes, getProjectName, getProjectId } from "./config.js";
 import {
   cacheIssue,
   cacheIssues,
@@ -12,6 +12,8 @@ import {
   clearIssuesCache,
   cacheLabel,
   getLabelIdByName,
+  cacheProject,
+  getProjectIdByName,
   updateLastSync,
 } from "./database.js";
 import type { Issue, IssueType, Priority, LinearIssue, IssueStatus } from "../types.js";
@@ -121,6 +123,95 @@ export async function ensureRepoLabel(teamId: string): Promise<string> {
   );
 
   return createResult.issueLabelCreate.issueLabel.id;
+}
+
+/**
+ * Get or create a Linear Project for the current repo.
+ * Projects are the Linear-native way to scope issues to a repository.
+ */
+export async function ensureProject(teamId: string, projectNameOverride?: string): Promise<string> {
+  const client = getGraphQLClient();
+
+  // If project ID is configured, use it directly (skip lookup)
+  const configuredProjectId = getProjectId();
+  if (configuredProjectId) {
+    return configuredProjectId;
+  }
+
+  // Use override, or get from config (which falls back to repo_name)
+  const name = projectNameOverride || getProjectName();
+
+  // Check cache first
+  const cachedId = getProjectIdByName(name);
+  if (cachedId) return cachedId;
+
+  // Query existing projects by name
+  const query = `
+    query GetProjects($name: String!) {
+      projects(filter: { name: { eq: $name } }) {
+        nodes {
+          id
+          name
+          teams {
+            nodes {
+              id
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await client.request<{
+    projects: { nodes: Array<{ id: string; name: string; teams: { nodes: Array<{ id: string }> } }> };
+  }>(query, { name });
+
+  // Prefer a project that includes our team, but accept any matching name
+  const existing = result.projects.nodes.find(
+    (p) => p.name === name && p.teams.nodes.some((t) => t.id === teamId)
+  ) || result.projects.nodes.find((p) => p.name === name);
+
+  if (existing) {
+    cacheProject(existing.id, existing.name, teamId);
+    return existing.id;
+  }
+
+  // Create project
+  const createMutation = `
+    mutation CreateProject($input: ProjectCreateInput!) {
+      projectCreate(input: $input) {
+        success
+        project {
+          id
+          name
+        }
+      }
+    }
+  `;
+
+  const createResult = await client.request<{
+    projectCreate: {
+      success: boolean;
+      project: { id: string; name: string };
+    };
+  }>(createMutation, {
+    input: {
+      name,
+      teamIds: [teamId],
+    },
+  });
+
+  if (!createResult.projectCreate.success) {
+    throw new Error(`Failed to create project: ${name}`);
+  }
+
+  cacheProject(
+    createResult.projectCreate.project.id,
+    createResult.projectCreate.project.name,
+    teamId
+  );
+
+  return createResult.projectCreate.project.id;
 }
 
 /**
@@ -350,17 +441,19 @@ export async function getWorkflowStateId(teamId: string, status: Issue["status"]
 
 /**
  * Fetch issues from Linear with repo scoping
- * Uses a simplified query to avoid Linear API complexity limits
+ * Uses project-based filtering (projects are the Linear-native way to scope issues)
  */
 export async function fetchIssues(teamId: string): Promise<Issue[]> {
   const client = getGraphQLClient();
-  const repoLabel = getRepoLabel();
 
-  // Use simpler query without nested children/relations to avoid complexity limits
+  // Get or create the project for this repo
+  const projectId = await ensureProject(teamId);
+
+  // Use project filter instead of label filter for repo scoping
   const query = `
-    query GetIssues($teamId: String!, $labelName: String!) {
+    query GetIssues($teamId: String!, $projectId: ID!) {
       team(id: $teamId) {
-        issues(filter: { labels: { name: { eq: $labelName } } }, first: 100) {
+        issues(filter: { project: { id: { eq: $projectId } } }, first: 100) {
           nodes {
             ${ISSUE_FRAGMENT}
           }
@@ -371,7 +464,7 @@ export async function fetchIssues(teamId: string): Promise<Issue[]> {
 
   const result = await client.request<{
     team: { issues: { nodes: LinearIssue[] } };
-  }>(query, { teamId, labelName: repoLabel });
+  }>(query, { teamId, projectId });
 
   const issues = result.team.issues.nodes.map(linearToBdIssue);
 
@@ -603,9 +696,11 @@ export async function createIssue(params: {
 }): Promise<Issue> {
   const client = getGraphQLClient();
 
-  // Get required labels
-  const repoLabelId = await ensureRepoLabel(params.teamId);
-  const labelIds: string[] = [repoLabelId];
+  // Get project ID - issues are now scoped by project instead of repo label
+  const projectId = await ensureProject(params.teamId);
+
+  // Build label IDs - only add type label (no repo label)
+  const labelIds: string[] = [];
 
   // Only add type label if types are enabled and type is provided
   if (useTypes() && params.issueType) {
@@ -640,6 +735,7 @@ export async function createIssue(params: {
     description: params.description,
     priority: priorityToLinear(params.priority),
     teamId: params.teamId,
+    projectId,
     stateId,
     labelIds,
     parentId: parentUuid,

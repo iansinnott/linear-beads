@@ -11,6 +11,14 @@
       "type": "string",
       "description": "Name used for repo: label in Linear. Overrides auto-detection from git remote or directory name."
     },
+    "project_name": {
+      "type": "string",
+      "description": "Name of the Linear project for scoping issues. Overrides auto-detection from repo_name or git remote/directory name."
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Linear project ID (UUID). If set, skips project lookup by name."
+    },
     "use_issue_types": {
       "type": "boolean",
       "default": false,

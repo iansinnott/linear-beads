@@ -21,6 +21,8 @@ interface LoadedConfig extends ConfigTypes {
   api_key?: string;
   team_id?: string;
   team_key?: string;
+  project_name?: string;
+  project_id?: string;
 }
 
 let loadedConfig: LoadedConfig | null = null;
@@ -187,6 +189,12 @@ function loadConfig(): LoadedConfig {
   if (process.env.LB_REPO_NAME) {
     config.repo_name = process.env.LB_REPO_NAME;
   }
+  if (process.env.LB_PROJECT_NAME) {
+    config.project_name = process.env.LB_PROJECT_NAME;
+  }
+  if (process.env.LB_PROJECT_ID) {
+    config.project_id = process.env.LB_PROJECT_ID;
+  }
 
   // 4. If repo_name not set in config, use heuristic (lowest priority)
   if (!config.repo_name) {
@@ -256,6 +264,28 @@ export function useTypes(): boolean {
  */
 export function getRepoName(): string | undefined {
   return getOption("repo_name");
+}
+
+/**
+ * Get project name for Linear project scoping
+ * Falls back to repo_name if project_name is not set
+ */
+export function getProjectName(): string {
+  // Priority: project_name config > repo_name config > heuristic
+  const projectName = getOption("project_name");
+  if (projectName) {
+    return projectName;
+  }
+  // Fall back to repo_name (which already has heuristic fallback in loadConfig)
+  return getOption("repo_name") || "unknown";
+}
+
+/**
+ * Get project ID if explicitly configured
+ * Returns undefined if not set (caller should look up by name)
+ */
+export function getProjectId(): string | undefined {
+  return getOption("project_id");
 }
 
 /**

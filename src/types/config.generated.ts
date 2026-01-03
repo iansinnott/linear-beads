@@ -15,6 +15,14 @@ export interface HttpsLbCliDevConfigSchemaJson {
    */
   repo_name?: string;
   /**
+   * Name of the Linear project for scoping issues. Overrides auto-detection from repo_name or git remote/directory name.
+   */
+  project_name?: string;
+  /**
+   * Linear project ID (UUID). If set, skips project lookup by name.
+   */
+  project_id?: string;
+  /**
    * Enable issue type labels (Bug, Feature, Task, etc.) using Linear label groups. When false, types are not tracked.
    */
   use_issue_types?: boolean;
