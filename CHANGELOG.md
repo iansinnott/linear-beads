@@ -1,5 +1,11 @@
 # Changelog
 
+## v10
+
+- **Project-based scoping**: Issues are now scoped to Linear projects instead of `repo:X` labels. This is the Linear-native way to organize issues by repository.
+- **Migration command**: `lb migrate labels-to-project` migrates existing issues from label-based to project-based scoping. Use `--dry-run` to preview and `--remove-labels` to clean up old labels.
+- **Breaking change**: `lb init` now creates a Linear project instead of a repo label. Existing repos should run `lb migrate labels-to-project` to migrate.
+
 ## v9
 
 - **Claude Code support**: `lb onboard` now tells agents to use CLAUDE.md (Claude Code) or AGENTS.md (other tools)

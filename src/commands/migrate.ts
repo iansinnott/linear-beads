@@ -4,9 +4,152 @@
 
 import { Command } from "commander";
 import { getGraphQLClient } from "../utils/graphql.js";
-import { getTeamId, fetchIssues } from "../utils/linear.js";
+import { getTeamId, fetchIssues, ensureProject } from "../utils/linear.js";
 import { getRepoLabel } from "../utils/config.js";
 import { output } from "../utils/output.js";
+
+/**
+ * Migrate issues from repo label scoping to project scoping
+ */
+async function migrateLabelsToProject(
+  teamId: string,
+  dryRun: boolean,
+  removeLabels: boolean
+): Promise<void> {
+  const client = getGraphQLClient();
+  const repoLabel = getRepoLabel();
+
+  output(`Looking for issues with label '${repoLabel}'...`);
+
+  // Query issues with the repo label
+  const query = `
+    query GetIssuesWithLabel($teamId: String!, $labelName: String!) {
+      team(id: $teamId) {
+        issues(filter: { labels: { name: { eq: $labelName } } }, first: 100) {
+          nodes {
+            id
+            identifier
+            title
+            project {
+              id
+              name
+            }
+            labels {
+              nodes {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await client.request<{
+    team: {
+      issues: {
+        nodes: Array<{
+          id: string;
+          identifier: string;
+          title: string;
+          project: { id: string; name: string } | null;
+          labels: { nodes: Array<{ id: string; name: string }> };
+        }>;
+      };
+    };
+  }>(query, { teamId, labelName: repoLabel });
+
+  const issues = result.team.issues.nodes;
+  output(`Found ${issues.length} issues with label '${repoLabel}'`);
+
+  if (issues.length === 0) {
+    output("No issues to migrate.");
+    return;
+  }
+
+  // Get or create the project
+  const projectId = await ensureProject(teamId);
+  output(`Target project ID: ${projectId}`);
+
+  // Find the repo label ID for removal if needed
+  let repoLabelId: string | undefined;
+  if (removeLabels && issues.length > 0) {
+    const labelMatch = issues[0].labels.nodes.find((l) => l.name === repoLabel);
+    repoLabelId = labelMatch?.id;
+  }
+
+  const updateMutation = `
+    mutation UpdateIssueProject($id: String!, $input: IssueUpdateInput!) {
+      issueUpdate(id: $id, input: $input) {
+        success
+        issue {
+          identifier
+          project {
+            name
+          }
+        }
+      }
+    }
+  `;
+
+  let migrated = 0;
+  let skipped = 0;
+
+  for (const issue of issues) {
+    // Skip if already in the target project
+    if (issue.project?.id === projectId) {
+      output(`  ${issue.identifier}: Already in project, skipping`);
+      skipped++;
+      continue;
+    }
+
+    // Build the update input
+    const input: Record<string, unknown> = {
+      projectId,
+    };
+
+    // If removing labels, filter out the repo label
+    if (removeLabels && repoLabelId) {
+      const newLabelIds = issue.labels.nodes
+        .filter((l) => l.id !== repoLabelId)
+        .map((l) => l.id);
+      input.labelIds = newLabelIds;
+    }
+
+    if (dryRun) {
+      const action = removeLabels ? "add to project & remove label" : "add to project";
+      output(`  ${issue.identifier}: Would ${action} - "${issue.title}"`);
+    } else {
+      try {
+        const updateResult = await client.request<{
+          issueUpdate: {
+            success: boolean;
+            issue: { identifier: string; project: { name: string } | null };
+          };
+        }>(updateMutation, { id: issue.id, input });
+
+        if (updateResult.issueUpdate.success) {
+          const action = removeLabels ? "migrated & label removed" : "migrated";
+          output(`  ${issue.identifier}: ${action} - "${issue.title}"`);
+          migrated++;
+        } else {
+          output(`  ${issue.identifier}: Failed to migrate`);
+        }
+      } catch (error) {
+        output(`  ${issue.identifier}: Error - ${error instanceof Error ? error.message : error}`);
+      }
+    }
+  }
+
+  output("");
+  if (dryRun) {
+    output(`Dry run complete. Would migrate ${issues.length - skipped} issues.`);
+    output("Run without --dry-run to apply changes.");
+  } else {
+    output(`Migration complete. Migrated ${migrated} issues, skipped ${skipped}.`);
+  }
+}
 
 /**
  * Remove type labels from all issues in this repo
@@ -117,18 +260,36 @@ async function removeTypeLabels(teamId: string, dryRun: boolean): Promise<void> 
   }
 }
 
-export const migrateCommand = new Command("migrate").description("Migration utilities").addCommand(
-  new Command("remove-type-labels")
-    .description("Remove type labels (type:X or Type group) from all issues in this repo")
-    .option("--dry-run", "Show what would be changed without making changes")
-    .option("--team <team>", "Team key (overrides config)")
-    .action(async (options) => {
-      try {
-        const teamId = await getTeamId(options.team);
-        await removeTypeLabels(teamId, options.dryRun);
-      } catch (error) {
-        console.error("Error:", error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
-    })
-);
+export const migrateCommand = new Command("migrate")
+  .description("Migration utilities")
+  .addCommand(
+    new Command("labels-to-project")
+      .description("Migrate issues from repo label scoping to project scoping")
+      .option("--dry-run", "Show what would be changed without making changes")
+      .option("--remove-labels", "Remove the repo:X label after migrating each issue")
+      .option("--team <team>", "Team key (overrides config)")
+      .action(async (options) => {
+        try {
+          const teamId = await getTeamId(options.team);
+          await migrateLabelsToProject(teamId, options.dryRun, options.removeLabels);
+        } catch (error) {
+          console.error("Error:", error instanceof Error ? error.message : error);
+          process.exit(1);
+        }
+      })
+  )
+  .addCommand(
+    new Command("remove-type-labels")
+      .description("Remove type labels (type:X or Type group) from all issues in this repo")
+      .option("--dry-run", "Show what would be changed without making changes")
+      .option("--team <team>", "Team key (overrides config)")
+      .action(async (options) => {
+        try {
+          const teamId = await getTeamId(options.team);
+          await removeTypeLabels(teamId, options.dryRun);
+        } catch (error) {
+          console.error("Error:", error instanceof Error ? error.message : error);
+          process.exit(1);
+        }
+      })
+  );

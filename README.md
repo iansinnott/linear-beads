@@ -32,6 +32,12 @@ When your agent runs `lb onboard`, it will:
 
 After onboarding, your agent uses `lb` instead of its built-in task tools. Issues sync to Linear so you can see them in the Linear UI.
 
+## How Issues Are Scoped
+
+Each repository gets its own Linear project. When you run `lb init`, it creates (or finds) a project matching your repo name. All issues created with `lb` are automatically added to this project, making it easy to see all issues for a repo in Linear's project view.
+
+**Migrating from older versions:** If you used `lb` before v10, your issues may have `repo:X` labels instead of project assignment. Run `lb migrate labels-to-project` to migrate them.
+
 ## Offline & Local-Only Modes
 
 `lb` works offline and can run entirely without Linear.

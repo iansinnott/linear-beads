@@ -5,8 +5,8 @@
 import { Command } from "commander";
 import { existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
-import { getDbPath, getApiKey, getRepoLabel } from "../utils/config.js";
-import { getTeamId, ensureRepoLabel } from "../utils/linear.js";
+import { getDbPath, getApiKey, getProjectName } from "../utils/config.js";
+import { getTeamId, ensureProject } from "../utils/linear.js";
 import { fullSync } from "../utils/sync.js";
 import { output } from "../utils/output.js";
 
@@ -48,10 +48,10 @@ export const initCommand = new Command("init")
         mkdirSync(lbDir, { recursive: true });
       }
 
-      // Ensure repo label exists
-      const repoLabel = getRepoLabel();
-      await ensureRepoLabel(teamId);
-      output(`✓ Repo label: ${repoLabel}`);
+      // Ensure project exists for this repo
+      const projectName = getProjectName();
+      await ensureProject(teamId);
+      output(`✓ Project: ${projectName}`);
 
       // Initial sync
       const result = await fullSync();

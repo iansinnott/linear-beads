@@ -3,7 +3,7 @@
  */
 
 import { getGraphQLClient, ISSUE_FRAGMENT, ISSUE_WITH_RELATIONS_FRAGMENT } from "./graphql.js";
-import { getRepoLabel, getTeamKey, useTypes, getProjectName, getProjectId } from "./config.js";
+import { getTeamKey, useTypes, getProjectName, getProjectId } from "./config.js";
 import {
   cacheIssue,
   cacheIssues,
@@ -50,79 +50,6 @@ function linearToBdIssue(linear: LinearIssue): Issue & { linear_state_id: string
   }
 
   return issue;
-}
-
-/**
- * Get or create repo label
- */
-export async function ensureRepoLabel(teamId: string): Promise<string> {
-  const client = getGraphQLClient();
-  const repoLabel = getRepoLabel();
-
-  // Check cache first
-  const cachedId = getLabelIdByName(repoLabel);
-  if (cachedId) return cachedId;
-
-  // Query existing labels
-  const query = `
-    query GetLabels($teamId: String!) {
-      team(id: $teamId) {
-        labels {
-          nodes {
-            id
-            name
-          }
-        }
-      }
-    }
-  `;
-
-  const result = await client.request<{
-    team: { labels: { nodes: Array<{ id: string; name: string }> } };
-  }>(query, { teamId });
-
-  const existing = result.team.labels.nodes.find((l) => l.name === repoLabel);
-  if (existing) {
-    cacheLabel(existing.id, existing.name, teamId);
-    return existing.id;
-  }
-
-  // Create label
-  const createMutation = `
-    mutation CreateLabel($input: IssueLabelCreateInput!) {
-      issueLabelCreate(input: $input) {
-        success
-        issueLabel {
-          id
-          name
-        }
-      }
-    }
-  `;
-
-  const createResult = await client.request<{
-    issueLabelCreate: {
-      success: boolean;
-      issueLabel: { id: string; name: string };
-    };
-  }>(createMutation, {
-    input: {
-      name: repoLabel,
-      teamId,
-    },
-  });
-
-  if (!createResult.issueLabelCreate.success) {
-    throw new Error(`Failed to create repo label: ${repoLabel}`);
-  }
-
-  cacheLabel(
-    createResult.issueLabelCreate.issueLabel.id,
-    createResult.issueLabelCreate.issueLabel.name,
-    teamId
-  );
-
-  return createResult.issueLabelCreate.issueLabel.id;
 }
 
 /**
