@@ -12,6 +12,17 @@ This project uses **lb** for issue tracking via Linear.
 
 Run `lb --help` for full command list.
 
+### Triage Issues
+
+Issues in **Triage** status are human-created items that need clarification before work can begin. This is different from Linear's default use (integration-created issues).
+
+**Workflow:**
+1. Human creates a rough idea or request → lands in Triage
+2. Human refines the issue (adds details, acceptance criteria, etc.)
+3. Human moves to Backlog/Todo when ready for agent work
+
+**For agents:** Do NOT pick up Triage issues - they need human clarification first. Check the status before starting work with `lb show`.
+
 **Setup:** Add this alias to your shell config:
 ```bash
 alias lb='bun run /Users/ian/dev/linear-beads/src/cli.ts'
