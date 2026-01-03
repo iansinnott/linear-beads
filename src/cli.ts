@@ -4,6 +4,9 @@
  */
 
 import { Command } from "commander";
+import { execSync } from "child_process";
+import { dirname } from "path";
+import { fileURLToPath } from "url";
 import { initCommand } from "./commands/init.js";
 import { authCommand } from "./commands/auth.js";
 import { importCommand } from "./commands/import.js";
@@ -25,12 +28,26 @@ import { closeDatabase } from "./utils/database.js";
 import { exportToJsonl } from "./utils/jsonl.js";
 import { processOutbox } from "./utils/background-sync-worker.js";
 
+const VERSION = "0.11.0";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function getGitHash(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", {
+      encoding: "utf-8",
+      cwd: __dirname,
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
 const program = new Command();
 
 program
   .name("lb")
   .description("Linear-native beads-style issue tracker")
-  .version("0.11.0")
+  .version(`lb/${VERSION} (${getGitHash()})`)
   .option("--worker", "Internal: run background sync worker")
   .option("--export-worker", "Internal: run JSONL export worker")
   .configureHelp({
