@@ -82,6 +82,14 @@ lb-dev close GENT-XXX --reason "Brief summary of what was done"
 
 Commit atomically as you work (one logical change per commit) unless told otherwise.
 
+## Versioning
+
+After committing changes, consider whether a version bump is warranted. If the changes add features, fix bugs, or make breaking changes:
+1. Update version in `package.json` and `src/cli.ts`
+2. Add entry to `CHANGELOG.md`
+
+Version follows `0.X.0` format where X maps to the changelog version (e.g., v11 = 0.11.0).
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.

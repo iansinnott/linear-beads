@@ -1,5 +1,9 @@
 # Changelog
 
+## v11
+
+- **Configurable auto-assign**: New `auto_assign` config option controls whether new issues are automatically assigned to the current user. Defaults to `false` (no auto-assign). Use `--assign me` or set `auto_assign: true` in config to enable.
+
 ## v10
 
 - **Project-based scoping**: Issues are now scoped to Linear projects instead of `repo:X` labels. This is the Linear-native way to organize issues by repository.

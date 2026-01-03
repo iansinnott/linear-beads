@@ -30,7 +30,7 @@ const program = new Command();
 program
   .name("lb")
   .description("Linear-native beads-style issue tracker")
-  .version("0.1.0")
+  .version("0.11.0")
   .option("--worker", "Internal: run background sync worker")
   .option("--export-worker", "Internal: run JSONL export worker")
   .configureHelp({

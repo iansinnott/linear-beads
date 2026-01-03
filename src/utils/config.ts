@@ -114,6 +114,7 @@ export const DEFAULT_CONFIG: LoadedConfig = {
   use_issue_types: false,
   cache_ttl_seconds: 120,
   local_only: false,
+  auto_assign: false,
 };
 
 /**
@@ -293,6 +294,13 @@ export function getProjectId(): string | undefined {
  */
 export function isLocalOnly(): boolean {
   return getOption("local_only") === true;
+}
+
+/**
+ * Check if auto-assign is enabled for new issues
+ */
+export function shouldAutoAssign(): boolean {
+  return getOption("auto_assign") === true;
 }
 
 /**

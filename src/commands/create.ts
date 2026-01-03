@@ -20,7 +20,7 @@ import { formatIssueJson, formatIssueHuman, output } from "../utils/output.js";
 import { ensureOutboxProcessed } from "../utils/spawn-worker.js";
 import type { Issue, IssueType } from "../types.js";
 import { parsePriority, VALID_ISSUE_TYPES } from "../types.js";
-import { useTypes, isLocalOnly } from "../utils/config.js";
+import { useTypes, isLocalOnly, shouldAutoAssign } from "../utils/config.js";
 
 const VALID_DEP_TYPES = ["blocks", "related", "discovered-from"];
 
@@ -207,11 +207,12 @@ export const createCommand = new Command("create")
             }
             assigneeId = user.id;
           }
-        } else {
-          // Default: auto-assign to current user
+        } else if (shouldAutoAssign()) {
+          // Config enabled: auto-assign to current user
           const viewer = await getViewer();
           assigneeId = viewer.id;
         }
+        // Otherwise: no assignee (default)
 
         const issue = await createIssue({
           title,

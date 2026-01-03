@@ -34,4 +34,8 @@ export interface HttpsLbCliDevConfigSchemaJson {
    * Run in local-only mode without syncing to Linear. Issues get LOCAL-xxx IDs. Useful for LLM-only task tracking.
    */
   local_only?: boolean;
+  /**
+   * Automatically assign new issues to the current user. When false (default), issues are created without an assignee unless --assign is used.
+   */
+  auto_assign?: boolean;
 }
