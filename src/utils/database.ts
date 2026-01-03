@@ -593,12 +593,13 @@ export function clearCache(): void {
 
 /**
  * Clear issues cache (before full sync to remove stale issues from other repos)
+ * Also clears synced dependencies (parent-child, blocks, related) but preserves local-only deps
  */
 export function clearIssuesCache(): void {
   const db = getDatabase();
   db.exec(`
     DELETE FROM issues;
-    DELETE FROM dependencies WHERE type = 'parent-child';
+    DELETE FROM dependencies WHERE created_by = 'sync';
   `);
   requestJsonlExport();
 }

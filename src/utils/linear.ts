@@ -414,9 +414,10 @@ export async function fetchIssues(teamId: string): Promise<Issue[]> {
     }
   }
 
-  // Note: We don't fetch relations on bulk sync (too slow - O(n) network calls).
-  // Relations are fetched on-demand via `lb show <id> --sync`.
-  // This means `lb ready` may show blocked issues until their blockers are synced individually.
+  // Fetch blocking relations separately (Linear's query complexity limits prevent inline fetch)
+  // This adds ~1-2s but ensures `lb ready` correctly filters blocked issues
+  const issueIds = issues.map((i) => i.id);
+  await fetchRelations(issueIds);
 
   updateLastSync();
   return issues;
