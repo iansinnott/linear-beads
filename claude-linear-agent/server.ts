@@ -25,7 +25,10 @@ if (!WEBHOOK_SECRET || !ACCESS_TOKEN) {
 interface LinearWebhookPayload {
   action: string;
   type: string;
-  data: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  agentSession?: AgentSessionData;
+  promptContext?: string;
+  previousComments?: Array<{ id: string; body: string }>;
   createdAt: string;
   organizationId: string;
 }
@@ -33,16 +36,23 @@ interface LinearWebhookPayload {
 interface AgentSessionData {
   id: string;
   issueId: string;
+  status: string;
+  type: string;
   issue?: {
     id: string;
     identifier: string;
     title: string;
     description?: string;
+    url?: string;
   };
-  triggerType: "mention" | "delegation";
-  messageId?: string;
-  message?: {
+  comment?: {
+    id: string;
     body: string;
+  };
+  creator?: {
+    id: string;
+    name: string;
+    email: string;
   };
 }
 
@@ -88,65 +98,38 @@ async function postComment(issueId: string, body: string): Promise<void> {
   }
 }
 
-// Update agent session activity
-async function updateSession(
-  sessionId: string,
-  status: "running" | "completed" | "failed",
-  progress?: string
-): Promise<void> {
-  const response = await fetch("https://api.linear.app/graphql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${ACCESS_TOKEN}`,
-    },
-    body: JSON.stringify({
-      query: `
-        mutation UpdateAgentSession($id: String!, $status: AgentSessionStatus!, $progress: String) {
-          agentSessionUpdate(id: $id, input: { status: $status, progress: $progress }) {
-            success
-          }
-        }
-      `,
-      variables: { id: sessionId, status, progress },
-    }),
-  });
-
-  const result = await response.json();
-  if (!result.data?.agentSessionUpdate?.success) {
-    console.error("Failed to update session:", result);
-  }
-}
+// TODO: Implement session status updates once we understand the API schema
+// For now, Linear will show "pending" status until we figure out the correct mutation
 
 // Run Claude Agent on an issue
-async function runAgent(session: AgentSessionData): Promise<void> {
+async function runAgent(session: AgentSessionData, promptContext?: string): Promise<void> {
   const issue = session.issue;
   if (!issue) {
     console.error("No issue data in session");
     return;
   }
 
-  // Build prompt from issue context
-  const mentionText = session.message?.body || "";
+  // Use Linear's provided context or build our own
+  const context = promptContext || `
+Issue ${issue.identifier}: "${issue.title}"
+${issue.description ? `Description: ${issue.description}` : ""}
+${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
+`.trim();
+
   const prompt = `
-You are helping with Linear issue ${issue.identifier}: "${issue.title}"
+You are Claude, an AI assistant helping with Linear issues. You have access to a codebase.
 
-${issue.description ? `Issue description:\n${issue.description}\n` : ""}
-${mentionText ? `The user mentioned you with:\n${mentionText}\n` : ""}
+${context}
 
-Please help with this issue. You have access to the codebase at ${REPO_PATH}.
-After investigating, provide a clear response summarizing what you found or did.
+Please help with this request. You have access to the codebase at ${REPO_PATH}.
+Investigate the issue and provide a clear, helpful response.
 `.trim();
 
   console.log(`\n🤖 Running agent for ${issue.identifier}...`);
   console.log(`📝 Prompt: ${prompt.slice(0, 200)}...`);
 
   try {
-    // Update session to running
-    await updateSession(session.id, "running", "Analyzing issue...");
-
     let responseText = "";
-    let lastProgress = "";
 
     const iterator = query({
       prompt,
@@ -164,14 +147,8 @@ After investigating, provide a clear response summarizing what you found or did.
         for (const block of message.message.content) {
           if (block.type === "text") {
             responseText = block.text;
-            // Update progress periodically
-            const progress = `Processing: ${responseText.slice(0, 100)}...`;
-            if (progress !== lastProgress) {
-              await updateSession(session.id, "running", progress);
-              lastProgress = progress;
-            }
           } else if (block.type === "tool_use") {
-            await updateSession(session.id, "running", `Using tool: ${block.name}`);
+            console.log(`  🔧 Using tool: ${block.name}`);
           }
         }
       } else if (message.type === "result") {
@@ -186,11 +163,9 @@ After investigating, provide a clear response summarizing what you found or did.
     // Post final response as comment
     if (responseText) {
       await postComment(issue.id, responseText);
-      await updateSession(session.id, "completed");
       console.log(`💬 Posted response to ${issue.identifier}`);
     } else {
       await postComment(issue.id, "I looked into this but couldn't formulate a response. Please try rephrasing your request.");
-      await updateSession(session.id, "completed");
     }
   } catch (error) {
     console.error("Agent error:", error);
@@ -198,7 +173,6 @@ After investigating, provide a clear response summarizing what you found or did.
       issue.id,
       `I encountered an error while processing this request: ${error instanceof Error ? error.message : "Unknown error"}`
     );
-    await updateSession(session.id, "failed");
   }
 }
 
@@ -220,12 +194,23 @@ app.post("/webhook", async (c) => {
   console.log(`\n📥 Webhook: ${payload.type} / ${payload.action}`);
 
   // Handle agent session events
-  if (payload.type === "AgentSession" && payload.action === "create") {
-    const session = payload.data as unknown as AgentSessionData;
-    console.log(`🎯 Agent session created: ${session.triggerType} on issue ${session.issue?.identifier}`);
+  if (payload.type === "AgentSessionEvent" && payload.action === "created") {
+    // Save payload for debugging
+    const fs = require("fs");
+    fs.writeFileSync("/tmp/linear-webhook-payload.json", JSON.stringify(payload, null, 2));
+    console.log(`📝 Payload saved to /tmp/linear-webhook-payload.json`);
+
+    const session = payload.agentSession;
+    if (!session) {
+      console.error("No agentSession in payload");
+      return c.json({ error: "No session data" }, 400);
+    }
+
+    console.log(`🎯 Agent session created on issue ${session.issue?.identifier || 'unknown'}`);
+    console.log(`   Comment: ${session.comment?.body?.slice(0, 100) || 'none'}`);
 
     // Run agent asynchronously (don't block webhook response)
-    runAgent(session).catch(console.error);
+    runAgent(session, payload.promptContext).catch(console.error);
 
     return c.json({ received: true });
   }
