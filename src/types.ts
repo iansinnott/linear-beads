@@ -4,7 +4,8 @@
  */
 
 // Issue status - matches bd semantics, maps to Linear workflow states
-export type IssueStatus = "open" | "in_progress" | "closed";
+// "triage" is for issues needing human clarification before agent work
+export type IssueStatus = "triage" | "open" | "in_progress" | "closed";
 
 // Issue type - matches bd
 export type IssueType = "bug" | "feature" | "task" | "epic" | "chore";
@@ -140,6 +141,8 @@ export interface Config {
  */
 export function statusToLinearState(status: IssueStatus): string {
   switch (status) {
+    case "triage":
+      return "triage";
     case "open":
       return "unstarted";
     case "in_progress":
@@ -154,12 +157,15 @@ export function statusToLinearState(status: IssueStatus): string {
  */
 export function linearStateToStatus(stateType: string): IssueStatus {
   switch (stateType) {
+    case "triage":
+      return "triage";
     case "started":
       return "in_progress";
     case "completed":
     case "canceled":
       return "closed";
     default:
+      // "unstarted", "backlog", etc. all map to open
       return "open";
   }
 }

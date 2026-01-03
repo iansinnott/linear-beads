@@ -16,13 +16,13 @@ import type { IssueStatus } from "../types.js";
 import { parsePriority, VALID_ISSUE_TYPES } from "../types.js";
 import { useTypes, isLocalOnly } from "../utils/config.js";
 
-const VALID_STATUSES: IssueStatus[] = ["open", "in_progress", "closed"];
+const VALID_STATUSES: IssueStatus[] = ["triage", "open", "in_progress", "closed"];
 
 export const listCommand = new Command("list")
   .description("List issues")
   .option("-j, --json", "Output as JSON")
   .option("-a, --all", "Show all issues (not just mine)")
-  .option("-s, --status <status>", "Filter by status: open, in_progress, closed")
+  .option("-s, --status <status>", "Filter by status: triage, open, in_progress, closed")
   .option(
     "-p, --priority <priority>",
     "Filter by priority: urgent, high, medium, low, backlog (or 0-4)"

@@ -21,7 +21,7 @@ Issues in **Triage** status are human-created items that need clarification befo
 2. Human refines the issue (adds details, acceptance criteria, etc.)
 3. Human moves to Backlog/Todo when ready for agent work
 
-**For agents:** Do NOT pick up Triage issues - they need human clarification first. Check the status before starting work with `lb show`.
+**For agents:** Triage issues are automatically excluded from `lb ready`. If you see a triage issue via `lb list`, leave it alone - it needs human input first.
 
 **Setup:** Add this alias to your shell config:
 ```bash
