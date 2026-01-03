@@ -10,6 +10,7 @@ import {
   cacheDependency,
   clearIssueDependencies,
   clearIssuesCache,
+  replaceAllIssues,
   cacheLabel,
   getLabelIdByName,
   cacheProject,
@@ -395,11 +396,9 @@ export async function fetchIssues(teamId: string): Promise<Issue[]> {
 
   const issues = result.team.issues.nodes.map(linearToBdIssue);
 
-  // Clear old issues before caching fresh ones (prevents stale issues from other repos)
-  clearIssuesCache();
-
-  // Cache issues
-  cacheIssues(issues);
+  // Atomically replace all issues (clear + insert in single transaction)
+  // This prevents race conditions where archived/deleted issues could persist
+  replaceAllIssues(issues);
 
   // Cache parent-child relations from the basic query
   for (const linear of result.team.issues.nodes) {

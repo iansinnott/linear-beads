@@ -261,12 +261,56 @@ export function cacheIssue(issue: Issue & { linear_state_id?: string }): void {
 export function cacheIssues(issues: Array<Issue & { linear_state_id?: string }>): void {
   const db = getDatabase();
   const insert = db.prepare(`
-    INSERT OR REPLACE INTO issues 
+    INSERT OR REPLACE INTO issues
     (id, identifier, title, description, status, priority, issue_type, created_at, updated_at, closed_at, assignee, linear_state_id, cached_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
 
   const transaction = db.transaction(() => {
+    for (const issue of issues) {
+      insert.run(
+        issue.id,
+        issue.id,
+        issue.title,
+        issue.description || null,
+        issue.status,
+        issue.priority,
+        issue.issue_type || null,
+        issue.created_at,
+        issue.updated_at,
+        issue.closed_at || null,
+        issue.assignee || null,
+        issue.linear_state_id || null
+      );
+    }
+  });
+
+  transaction();
+  requestJsonlExport();
+}
+
+/**
+ * Atomically replace all issues in cache (clear + insert in single transaction)
+ * This prevents race conditions where archived/deleted issues could persist
+ * if another process caches an issue between clear and insert.
+ */
+export function replaceAllIssues(issues: Array<Issue & { linear_state_id?: string }>): void {
+  const db = getDatabase();
+  const insert = db.prepare(`
+    INSERT OR REPLACE INTO issues
+    (id, identifier, title, description, status, priority, issue_type, created_at, updated_at, closed_at, assignee, linear_state_id, cached_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `);
+
+  // Atomic transaction: clear ALL issues and dependencies, then insert fresh data
+  const transaction = db.transaction(() => {
+    // Clear old data first (within same transaction)
+    db.exec(`
+      DELETE FROM issues;
+      DELETE FROM dependencies WHERE created_by = 'sync';
+    `);
+
+    // Insert fresh issues
     for (const issue of issues) {
       insert.run(
         issue.id,
