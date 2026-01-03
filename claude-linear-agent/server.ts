@@ -98,8 +98,41 @@ async function postComment(issueId: string, body: string): Promise<void> {
   }
 }
 
-// TODO: Implement session status updates once we understand the API schema
-// For now, Linear will show "pending" status until we figure out the correct mutation
+// Emit agent activity to Linear (keeps session alive and shows progress)
+async function emitActivity(
+  sessionId: string,
+  content: { type: string; body?: string; action?: string; parameter?: string; result?: string },
+  ephemeral: boolean = false
+): Promise<void> {
+  const response = await fetch("https://api.linear.app/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ACCESS_TOKEN}`,
+    },
+    body: JSON.stringify({
+      query: `
+        mutation AgentActivityCreate($input: AgentActivityCreateInput!) {
+          agentActivityCreate(input: $input) {
+            success
+          }
+        }
+      `,
+      variables: {
+        input: {
+          agentSessionId: sessionId,
+          content,
+          ephemeral,
+        },
+      },
+    }),
+  });
+
+  const result = await response.json();
+  if (!result.data?.agentActivityCreate?.success) {
+    console.error("Failed to emit activity:", result);
+  }
+}
 
 // Run Claude Agent on an issue
 async function runAgent(session: AgentSessionData, promptContext?: string): Promise<void> {
@@ -128,6 +161,12 @@ Investigate the issue and provide a clear, helpful response.
   console.log(`\n🤖 Running agent for ${issue.identifier}...`);
   console.log(`📝 Prompt: ${prompt.slice(0, 200)}...`);
 
+  // CRITICAL: Emit activity immediately to avoid "unresponsive" status (must be within 10s)
+  await emitActivity(session.id, {
+    type: "thought",
+    body: `Analyzing issue ${issue.identifier}...`,
+  }, true); // ephemeral - will be replaced
+
   try {
     let responseText = "";
 
@@ -149,6 +188,14 @@ Investigate the issue and provide a clear, helpful response.
             responseText = block.text;
           } else if (block.type === "tool_use") {
             console.log(`  🔧 Using tool: ${block.name}`);
+            // Emit action activity for tool use (ephemeral)
+            await emitActivity(session.id, {
+              type: "action",
+              action: block.name,
+              parameter: typeof block.input === "string"
+                ? block.input.slice(0, 100)
+                : JSON.stringify(block.input).slice(0, 100),
+            }, true);
           }
         }
       } else if (message.type === "result") {
@@ -160,19 +207,24 @@ Investigate the issue and provide a clear, helpful response.
       }
     }
 
-    // Post final response as comment
+    // Emit final response activity and post comment
     if (responseText) {
+      await emitActivity(session.id, {
+        type: "response",
+        body: responseText.slice(0, 2000), // Linear may have limits
+      });
       await postComment(issue.id, responseText);
       console.log(`💬 Posted response to ${issue.identifier}`);
     } else {
-      await postComment(issue.id, "I looked into this but couldn't formulate a response. Please try rephrasing your request.");
+      const fallback = "I looked into this but couldn't formulate a response. Please try rephrasing your request.";
+      await emitActivity(session.id, { type: "response", body: fallback });
+      await postComment(issue.id, fallback);
     }
   } catch (error) {
     console.error("Agent error:", error);
-    await postComment(
-      issue.id,
-      `I encountered an error while processing this request: ${error instanceof Error ? error.message : "Unknown error"}`
-    );
+    const errorMsg = `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`;
+    await emitActivity(session.id, { type: "error", body: errorMsg });
+    await postComment(issue.id, errorMsg);
   }
 }
 
