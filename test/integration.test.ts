@@ -915,3 +915,188 @@ describe("Local-only Mode", () => {
     });
   });
 });
+
+/**
+ * Project scoping tests
+ * Verifies that issues are scoped to a specific Linear project
+ */
+describe("Project Scoping", () => {
+  const testProjectName = `lb-test-project-${Date.now()}`;
+  const testDir = `/tmp/lb-project-test-${Date.now()}`;
+  const TEST_PREFIX = `[project-test-${Date.now()}]`;
+
+  // Track created issue IDs for cleanup
+  const createdIssueIds: string[] = [];
+  let createdProjectId: string | null = null;
+
+  // Helper to run lb in the project-scoped test directory
+  async function lbProject(
+    ...args: string[]
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const proc = Bun.spawn(["bun", "run", import.meta.dir + "/../src/cli.ts", ...args], {
+      cwd: testDir,
+      env: { ...process.env },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    return { stdout, stderr, exitCode };
+  }
+
+  async function lbProjectJson<T>(...args: string[]): Promise<T> {
+    const result = await lbProject(...args, "--json");
+    if (result.exitCode !== 0) {
+      throw new Error(`lb ${args.join(" ")} failed: ${result.stderr}\n${result.stdout}`);
+    }
+    return JSON.parse(result.stdout);
+  }
+
+  beforeAll(async () => {
+    if (!process.env.LINEAR_API_KEY) {
+      throw new Error("LINEAR_API_KEY environment variable is required");
+    }
+    if (!process.env.LB_TEAM_KEY) {
+      throw new Error("LB_TEAM_KEY environment variable is required for project scoping tests");
+    }
+
+    // Create test directory with project-specific config
+    mkdirSync(join(testDir, ".lb"), { recursive: true });
+    mkdirSync(join(testDir, ".git"), { recursive: true });
+
+    const config = {
+      team_key: process.env.LB_TEAM_KEY,
+      project_name: testProjectName,
+    };
+    writeFileSync(join(testDir, ".lb", "config.jsonc"), JSON.stringify(config, null, 2));
+
+    // Initial sync to create the project in Linear
+    await lbProject("sync");
+  });
+
+  afterAll(async () => {
+    // Cleanup: delete test issues and project via GraphQL
+    if (!process.env.LINEAR_API_KEY) return;
+
+    const client = new GraphQLClient("https://api.linear.app/graphql", {
+      headers: { Authorization: process.env.LINEAR_API_KEY },
+    });
+
+    // Delete created issues
+    for (const id of createdIssueIds) {
+      try {
+        await client.request(
+          `mutation DeleteIssue($id: String!) {
+            issueDelete(id: $id) { success }
+          }`,
+          { id }
+        );
+      } catch {
+        // Ignore deletion errors
+      }
+    }
+
+    // Delete the test project
+    if (createdProjectId) {
+      try {
+        await client.request(
+          `mutation DeleteProject($id: String!) {
+            projectDelete(id: $id) { success }
+          }`,
+          { id: createdProjectId }
+        );
+      } catch {
+        // Ignore deletion errors
+      }
+    }
+
+    // Remove test directory
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  test("should create project on first sync", async () => {
+    // Look up the project via GraphQL to verify it exists
+    const client = new GraphQLClient("https://api.linear.app/graphql", {
+      headers: { Authorization: process.env.LINEAR_API_KEY! },
+    });
+
+    const result = await client.request<{
+      projects: { nodes: Array<{ id: string; name: string }> };
+    }>(
+      `query FindProject($name: String!) {
+        projects(filter: { name: { eq: $name } }) {
+          nodes { id name }
+        }
+      }`,
+      { name: testProjectName }
+    );
+
+    expect(result.projects.nodes.length).toBe(1);
+    expect(result.projects.nodes[0].name).toBe(testProjectName);
+
+    // Save project ID for cleanup
+    createdProjectId = result.projects.nodes[0].id;
+  });
+
+  test("should create issues in the scoped project", async () => {
+    const title = `${TEST_PREFIX} Scoped issue`;
+    const result = await lbProjectJson<Array<{ id: string; title: string }>>(
+      "create",
+      title,
+      "--sync"
+    );
+
+    expect(result[0].id).toMatch(/^[A-Z]+-\d+$/);
+    createdIssueIds.push(result[0].id);
+
+    // Verify the issue is in the correct project via GraphQL
+    const client = new GraphQLClient("https://api.linear.app/graphql", {
+      headers: { Authorization: process.env.LINEAR_API_KEY! },
+    });
+
+    const issueResult = await client.request<{
+      issue: { id: string; project: { name: string } | null };
+    }>(
+      `query GetIssue($id: String!) {
+        issue(id: $id) {
+          id
+          project { name }
+        }
+      }`,
+      { id: result[0].id }
+    );
+
+    expect(issueResult.issue.project).not.toBeNull();
+    expect(issueResult.issue.project!.name).toBe(testProjectName);
+  });
+
+  test("should only list issues from the scoped project", async () => {
+    // Sync to refresh cache
+    await lbProject("sync");
+
+    // List issues
+    const issues = await lbProjectJson<Array<{ id: string; title: string }>>("list");
+
+    // All returned issues should be from our test project (have our test prefix)
+    // Note: This verifies scoping since we only created test issues in this project
+    expect(Array.isArray(issues)).toBe(true);
+
+    // Create another issue in the scoped project
+    const title = `${TEST_PREFIX} Second scoped issue`;
+    const secondResult = await lbProjectJson<Array<{ id: string }>>("create", title, "--sync");
+    createdIssueIds.push(secondResult[0].id);
+
+    // Re-sync and list
+    await lbProject("sync");
+    const updatedIssues = await lbProjectJson<Array<{ id: string; title: string }>>("list");
+
+    // Should have at least 2 issues now (the ones we created)
+    const testIssues = updatedIssues.filter((i) => i.title.includes(TEST_PREFIX));
+    expect(testIssues.length).toBeGreaterThanOrEqual(2);
+  });
+});

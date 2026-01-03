@@ -35,6 +35,7 @@ function handleMessage(message: SDKMessage) {
     case "system":
       if (message.subtype === "init") {
         console.log(`📦 Session: ${message.session_id}`);
+        console.log(`🔑 Auth: ${message.apiKeySource}`);
         console.log(`🔧 Tools: ${message.tools.join(", ")}`);
         console.log(`🤖 Model: ${message.model}`);
         console.log("─".repeat(60));
