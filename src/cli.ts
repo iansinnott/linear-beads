@@ -23,6 +23,7 @@ import { syncCommand } from "./commands/sync.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { exportCommand } from "./commands/export.js";
+import { projectCommand } from "./commands/project.js";
 import { verifyConnection } from "./utils/linear.js";
 import { closeDatabase } from "./utils/database.js";
 import { exportToJsonl } from "./utils/jsonl.js";
@@ -88,6 +89,9 @@ if (process.argv.includes("--worker")) {
   program.addCommand(closeCommand);
   program.addCommand(deleteCommand);
   program.addCommand(depCommand);
+
+  // Project management
+  program.addCommand(projectCommand);
 
   // Sync & interop
   program.addCommand(syncCommand);

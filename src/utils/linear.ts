@@ -1100,3 +1100,209 @@ export async function getUserByEmail(
 
   return result.users.nodes[0] || null;
 }
+
+/**
+ * External link on a project
+ */
+export interface ProjectExternalLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
+/**
+ * Project details with external links
+ */
+export interface ProjectDetails {
+  id: string;
+  name: string;
+  description?: string;
+  state: string;
+  externalLinks: ProjectExternalLink[];
+}
+
+/**
+ * Fetch project by name or ID with external links
+ */
+export async function getProjectWithLinks(nameOrId: string): Promise<ProjectDetails | null> {
+  const client = getGraphQLClient();
+
+  // Try to find by name first, then by ID
+  const query = `
+    query GetProject($name: String!) {
+      projects(filter: { name: { eq: $name } }) {
+        nodes {
+          id
+          name
+          description
+          state
+          externalLinks {
+            nodes {
+              id
+              label
+              url
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await client.request<{
+    projects: {
+      nodes: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        state: string;
+        externalLinks: { nodes: ProjectExternalLink[] };
+      }>;
+    };
+  }>(query, { name: nameOrId });
+
+  if (result.projects.nodes.length > 0) {
+    const p = result.projects.nodes[0];
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      state: p.state,
+      externalLinks: p.externalLinks.nodes,
+    };
+  }
+
+  // Try by ID
+  const idQuery = `
+    query GetProjectById($id: String!) {
+      project(id: $id) {
+        id
+        name
+        description
+        state
+        externalLinks {
+          nodes {
+            id
+            label
+            url
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const idResult = await client.request<{
+      project: {
+        id: string;
+        name: string;
+        description?: string;
+        state: string;
+        externalLinks: { nodes: ProjectExternalLink[] };
+      } | null;
+    }>(idQuery, { id: nameOrId });
+
+    if (idResult.project) {
+      const p = idResult.project;
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        state: p.state,
+        externalLinks: p.externalLinks.nodes,
+      };
+    }
+  } catch {
+    // ID lookup failed, project not found
+  }
+
+  return null;
+}
+
+/**
+ * Get GitHub repo URL from project external links
+ */
+export function getGitHubRepoFromLinks(links: ProjectExternalLink[]): string | null {
+  const githubLink = links.find((l) => l.url.includes("github.com"));
+  return githubLink?.url || null;
+}
+
+/**
+ * Set or update GitHub repo URL on a project
+ */
+export async function setProjectRepoUrl(
+  projectNameOrId: string,
+  repoUrl: string
+): Promise<ProjectDetails> {
+  const client = getGraphQLClient();
+
+  // First, get the project to find existing links
+  const project = await getProjectWithLinks(projectNameOrId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectNameOrId}`);
+  }
+
+  // Check if there's already a GitHub link
+  const existingGithubLink = project.externalLinks.find((l) => l.url.includes("github.com"));
+
+  if (existingGithubLink) {
+    // Update existing link
+    const updateMutation = `
+      mutation UpdateExternalLink($id: String!, $input: EntityExternalLinkUpdateInput!) {
+        entityExternalLinkUpdate(id: $id, input: $input) {
+          success
+          entityExternalLink {
+            id
+            label
+            url
+          }
+        }
+      }
+    `;
+
+    const result = await client.request<{
+      entityExternalLinkUpdate: {
+        success: boolean;
+        entityExternalLink: ProjectExternalLink;
+      };
+    }>(updateMutation, {
+      id: existingGithubLink.id,
+      input: { url: repoUrl },
+    });
+
+    if (!result.entityExternalLinkUpdate.success) {
+      throw new Error("Failed to update external link");
+    }
+  } else {
+    // Create new link
+    const createMutation = `
+      mutation CreateExternalLink($projectId: String!, $url: String!, $label: String!) {
+        entityExternalLinkCreate(input: { projectId: $projectId, url: $url, label: $label }) {
+          success
+          entityExternalLink {
+            id
+            label
+            url
+          }
+        }
+      }
+    `;
+
+    const result = await client.request<{
+      entityExternalLinkCreate: {
+        success: boolean;
+        entityExternalLink: ProjectExternalLink;
+      };
+    }>(createMutation, {
+      projectId: project.id,
+      url: repoUrl,
+      label: "GitHub Repo",
+    });
+
+    if (!result.entityExternalLinkCreate.success) {
+      throw new Error("Failed to create external link");
+    }
+  }
+
+  // Return updated project
+  return (await getProjectWithLinks(project.id))!;
+}
