@@ -188,14 +188,14 @@ Investigate the issue and provide a clear, helpful response.
             responseText = block.text;
           } else if (block.type === "tool_use") {
             console.log(`  🔧 Using tool: ${block.name}`);
-            // Emit action activity for tool use (ephemeral)
+            // Emit action activity for tool use (persistent, like Claude Code UI)
             await emitActivity(session.id, {
               type: "action",
               action: block.name,
               parameter: typeof block.input === "string"
                 ? block.input.slice(0, 100)
                 : JSON.stringify(block.input).slice(0, 100),
-            }, true);
+            });
           }
         }
       } else if (message.type === "result") {
