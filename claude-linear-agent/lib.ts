@@ -6,37 +6,89 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 // Types for Linear webhook payloads
+// AIDEV-NOTE: These types are derived from actual webhook payloads (2026-01-03)
+// See /tmp/linear-webhook-payload.json for a real example
 export interface LinearWebhookPayload {
   action: string;
   type: string;
-  data?: Record<string, unknown>;
-  agentSession?: AgentSessionData;
-  promptContext?: string;
-  previousComments?: Array<{ id: string; body: string }>;
   createdAt: string;
   organizationId: string;
+  // Agent-specific fields (present for AgentSessionEvent)
+  oauthClientId?: string;
+  appUserId?: string; // Our agent's user ID - use for self-trigger detection
+  agentSession?: AgentSessionData;
+  promptContext?: string;
+  previousComments?: Array<{
+    id: string;
+    body: string;
+    userId?: string;
+    issueId?: string;
+  }>;
+  guidance?: string | null;
+  webhookTimestamp?: number;
+  webhookId?: string;
+  // Generic webhook fields
+  data?: Record<string, unknown>;
 }
 
 export interface AgentSessionData {
   id: string;
+  createdAt?: string;
+  updatedAt?: string;
+  archivedAt?: string | null;
+  // User IDs
+  creatorId?: string; // Who triggered the session (user ID)
+  appUserId?: string; // Our agent's user ID
+  // Related entity IDs
   issueId: string;
+  commentId?: string;
+  sourceCommentId?: string | null;
+  organizationId?: string;
+  // Status
   status: string;
   type: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  dismissedAt?: string | null;
+  dismissedById?: string | null;
+  // External links
+  externalLink?: string | null;
+  externalUrls?: string[];
+  // Metadata
+  summary?: string | null;
+  sourceMetadata?: {
+    type?: string;
+    agentSessionMetadata?: {
+      sourceCommentId?: string;
+    };
+  } | null;
+  plan?: unknown | null;
+  // Related objects (expanded)
   issue?: {
     id: string;
     identifier: string;
     title: string;
     description?: string;
     url?: string;
+    teamId?: string;
+    team?: {
+      id: string;
+      key: string;
+      name: string;
+    };
   };
   comment?: {
     id: string;
     body: string;
+    userId?: string; // Who wrote the comment
+    issueId?: string;
   };
   creator?: {
     id: string;
     name: string;
     email: string;
+    avatarUrl?: string;
+    url?: string;
   };
 }
 
@@ -113,6 +165,25 @@ export function parseWebhookPayload(body: string): LinearWebhookPayload {
  */
 export function isAgentSessionCreated(payload: LinearWebhookPayload): boolean {
   return payload.type === "AgentSessionEvent" && payload.action === "created";
+}
+
+/**
+ * Check if this webhook is a self-trigger (our agent triggered itself)
+ * This happens when the agent's response contains an @mention that triggers a new session
+ * AIDEV-NOTE: Key self-trigger detection - compare creatorId with appUserId
+ */
+export function isSelfTrigger(payload: LinearWebhookPayload): boolean {
+  const session = payload.agentSession;
+  if (!session) return false;
+
+  // Compare who created the session with our agent's ID
+  // Both are available in the payload - no need for external lookups
+  const creatorId = session.creatorId || session.creator?.id;
+  const ourAgentId = payload.appUserId || session.appUserId;
+
+  if (!creatorId || !ourAgentId) return false;
+
+  return creatorId === ourAgentId;
 }
 
 /**

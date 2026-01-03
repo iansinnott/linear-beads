@@ -11,6 +11,7 @@ import {
   buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
+  isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
   type LinearWebhookPayload,
@@ -159,6 +160,93 @@ describe("createCommentMutation", () => {
     expect(mutation.query).toContain("commentCreate");
     expect(mutation.variables.issueId).toBe("issue-123");
     expect(mutation.variables.body).toBe("Hello world");
+  });
+});
+
+describe("isSelfTrigger", () => {
+  test("returns true when creatorId matches appUserId", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+      agentSession: {
+        id: "session-1",
+        issueId: "issue-1",
+        status: "pending",
+        type: "commentThread",
+        creatorId: "agent-user-123", // Same as appUserId
+      },
+    };
+    expect(isSelfTrigger(payload)).toBe(true);
+  });
+
+  test("returns true when creator.id matches appUserId", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+      agentSession: {
+        id: "session-1",
+        issueId: "issue-1",
+        status: "pending",
+        type: "commentThread",
+        creator: {
+          id: "agent-user-123", // Same as appUserId
+          name: "Claude Agent",
+          email: "agent@example.com",
+        },
+      },
+    };
+    expect(isSelfTrigger(payload)).toBe(true);
+  });
+
+  test("returns false when creator differs from appUserId", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+      agentSession: {
+        id: "session-1",
+        issueId: "issue-1",
+        status: "pending",
+        type: "commentThread",
+        creatorId: "human-user-456", // Different from appUserId
+      },
+    };
+    expect(isSelfTrigger(payload)).toBe(false);
+  });
+
+  test("returns false when no agentSession", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Issue",
+      action: "update",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(isSelfTrigger(payload)).toBe(false);
+  });
+
+  test("returns false when appUserId missing", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: "session-1",
+        issueId: "issue-1",
+        status: "pending",
+        type: "commentThread",
+        creatorId: "human-user-456",
+      },
+    };
+    expect(isSelfTrigger(payload)).toBe(false);
   });
 });
 

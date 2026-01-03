@@ -12,6 +12,7 @@ import {
   buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
+  isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
   type LinearWebhookPayload,
@@ -284,6 +285,18 @@ app.post("/webhook", async (c) => {
         issueIdentifier: session.issue?.identifier,
       });
       return c.json({ received: true, skipped: "duplicate" });
+    }
+
+    // AIDEV-NOTE: Self-trigger detection - if our agent triggered this session, skip it
+    // This is a secondary defense beyond session dedup (catches @mention in response text)
+    if (isSelfTrigger(payload)) {
+      log("warn", "Self-trigger detected, skipping", {
+        sessionId: session.id,
+        issueIdentifier: session.issue?.identifier,
+        creatorId: session.creatorId || session.creator?.id,
+        appUserId: payload.appUserId || session.appUserId,
+      });
+      return c.json({ received: true, skipped: "self-trigger" });
     }
 
     // Mark session as processed BEFORE starting work

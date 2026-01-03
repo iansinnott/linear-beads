@@ -63,35 +63,40 @@ function createSignedRequest(
   });
 }
 
-// Sample payloads
-const AGENT_SESSION_PAYLOAD = {
-  type: "AgentSessionEvent",
-  action: "created",
-  createdAt: new Date().toISOString(),
-  organizationId: "org-123",
-  agentSession: {
-    id: "session-123",
-    issueId: "issue-456",
-    status: "pending",
-    type: "commentThread",
-    issue: {
-      id: "issue-456",
-      identifier: "TEST-1",
-      title: "Test Issue",
-      description: "This is a test",
+// Helper to create unique session payloads (avoids deduplication between tests)
+let sessionCounter = 0;
+function createSessionPayload(overrides: Record<string, unknown> = {}) {
+  const id = `session-${++sessionCounter}-${Date.now()}`;
+  return {
+    type: "AgentSessionEvent",
+    action: "created",
+    createdAt: new Date().toISOString(),
+    organizationId: "org-123",
+    agentSession: {
+      id,
+      issueId: "issue-456",
+      status: "pending",
+      type: "commentThread",
+      issue: {
+        id: "issue-456",
+        identifier: "TEST-1",
+        title: "Test Issue",
+        description: "This is a test",
+      },
+      comment: {
+        id: "comment-789",
+        body: "@claude help me",
+      },
+      creator: {
+        id: "user-123",
+        name: "Test User",
+        email: "test@example.com",
+      },
+      ...overrides,
     },
-    comment: {
-      id: "comment-789",
-      body: "@claude help me",
-    },
-    creator: {
-      id: "user-123",
-      name: "Test User",
-      email: "test@example.com",
-    },
-  },
-  promptContext: "<issue>test</issue>",
-};
+    promptContext: "<issue>test</issue>",
+  };
+}
 
 describe("Webhook Endpoint", () => {
   beforeEach(() => {
@@ -111,7 +116,7 @@ describe("Webhook Endpoint", () => {
     const response = await server.fetch(
       new Request("http://localhost/webhook", {
         method: "POST",
-        body: JSON.stringify(AGENT_SESSION_PAYLOAD),
+        body: JSON.stringify(createSessionPayload()),
       })
     );
 
@@ -125,7 +130,7 @@ describe("Webhook Endpoint", () => {
       new Request("http://localhost/webhook", {
         method: "POST",
         headers: { "linear-signature": "invalid" },
-        body: JSON.stringify(AGENT_SESSION_PAYLOAD),
+        body: JSON.stringify(createSessionPayload()),
       })
     );
 
@@ -133,7 +138,7 @@ describe("Webhook Endpoint", () => {
   });
 
   test("POST /webhook accepts valid signature", async () => {
-    const request = createSignedRequest(AGENT_SESSION_PAYLOAD);
+    const request = createSignedRequest(createSessionPayload());
     const response = await server.fetch(request);
 
     expect(response.status).toBe(200);
@@ -175,7 +180,7 @@ describe("Webhook Endpoint", () => {
   });
 
   test("POST /webhook emits activity immediately on session created", async () => {
-    const request = createSignedRequest(AGENT_SESSION_PAYLOAD);
+    const request = createSignedRequest(createSessionPayload());
     await server.fetch(request);
 
     // Give async operations time to start
@@ -192,15 +197,59 @@ describe("Webhook Endpoint", () => {
   });
 });
 
+describe("Self-trigger Prevention", () => {
+  beforeEach(() => {
+    fetchCalls.length = 0;
+  });
+
+  test("POST /webhook skips self-triggered sessions", async () => {
+    // Simulate a session where the agent triggered itself (creatorId === appUserId)
+    const agentUserId = "agent-user-abc";
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: agentUserId, // Our agent's ID
+      agentSession: {
+        id: `self-trigger-${Date.now()}`,
+        issueId: "issue-456",
+        status: "pending",
+        type: "commentThread",
+        creatorId: agentUserId, // Same as appUserId = self-trigger
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+          description: "This is a test",
+        },
+        comment: {
+          id: "comment-789",
+          body: "@claude help me",
+        },
+      },
+      promptContext: "<issue>test</issue>",
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.skipped).toBe("self-trigger");
+  });
+});
+
 describe("Webhook Signature Verification", () => {
   test("rejects tampered body", async () => {
-    const body = JSON.stringify(AGENT_SESSION_PAYLOAD);
+    const payload = createSessionPayload();
+    const body = JSON.stringify(payload);
     const hmac = createHmac("sha256", WEBHOOK_SECRET);
     hmac.update(body);
     const signature = hmac.digest("hex");
 
     // Send different body with original signature
-    const tamperedPayload = { ...AGENT_SESSION_PAYLOAD, type: "Hacked" };
+    const tamperedPayload = { ...payload, type: "Hacked" };
 
     const response = await server.fetch(
       new Request("http://localhost/webhook", {
@@ -217,7 +266,7 @@ describe("Webhook Signature Verification", () => {
   });
 
   test("rejects wrong secret", async () => {
-    const request = createSignedRequest(AGENT_SESSION_PAYLOAD, "wrong-secret");
+    const request = createSignedRequest(createSessionPayload(), "wrong-secret");
     const response = await server.fetch(request);
 
     expect(response.status).toBe(401);
