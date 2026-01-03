@@ -6,8 +6,18 @@
  */
 
 import { Hono } from "hono";
-import { createHmac, timingSafeEqual } from "crypto";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  verifySignature,
+  buildPrompt,
+  parseWebhookPayload,
+  isAgentSessionCreated,
+  createCommentMutation,
+  createActivityMutation,
+  type LinearWebhookPayload,
+  type AgentSessionData,
+  type ActivityContent,
+} from "./lib";
 
 const app = new Hono();
 
@@ -15,61 +25,6 @@ const app = new Hono();
 const WEBHOOK_SECRET = process.env.LINEAR_WEBHOOK_SECRET!;
 const ACCESS_TOKEN = process.env.LINEAR_ACCESS_TOKEN!;
 const REPO_PATH = process.env.REPO_PATH || "/Users/ian/dev/linear-beads";
-
-if (!WEBHOOK_SECRET || !ACCESS_TOKEN) {
-  console.error("Missing required env vars: LINEAR_WEBHOOK_SECRET, LINEAR_ACCESS_TOKEN");
-  process.exit(1);
-}
-
-// Types for Linear webhook payloads
-interface LinearWebhookPayload {
-  action: string;
-  type: string;
-  data?: Record<string, unknown>;
-  agentSession?: AgentSessionData;
-  promptContext?: string;
-  previousComments?: Array<{ id: string; body: string }>;
-  createdAt: string;
-  organizationId: string;
-}
-
-interface AgentSessionData {
-  id: string;
-  issueId: string;
-  status: string;
-  type: string;
-  issue?: {
-    id: string;
-    identifier: string;
-    title: string;
-    description?: string;
-    url?: string;
-  };
-  comment?: {
-    id: string;
-    body: string;
-  };
-  creator?: {
-    id: string;
-    name: string;
-    email: string;
-  };
-}
-
-// Verify webhook signature
-function verifySignature(body: string, signature: string | null): boolean {
-  if (!signature) return false;
-
-  const hmac = createHmac("sha256", WEBHOOK_SECRET);
-  hmac.update(body);
-  const expected = hmac.digest("hex");
-
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
 
 // Post a comment to Linear
 async function postComment(issueId: string, body: string): Promise<void> {
@@ -92,7 +47,9 @@ async function postComment(issueId: string, body: string): Promise<void> {
     }),
   });
 
-  const result = await response.json();
+  const result = (await response.json()) as {
+    data?: { commentCreate?: { success: boolean } };
+  };
   if (!result.data?.commentCreate?.success) {
     console.error("Failed to post comment:", result);
   }
@@ -128,7 +85,9 @@ async function emitActivity(
     }),
   });
 
-  const result = await response.json();
+  const result = (await response.json()) as {
+    data?: { agentActivityCreate?: { success: boolean } };
+  };
   if (!result.data?.agentActivityCreate?.success) {
     console.error("Failed to emit activity:", result);
   }
@@ -142,21 +101,7 @@ async function runAgent(session: AgentSessionData, promptContext?: string): Prom
     return;
   }
 
-  // Use Linear's provided context or build our own
-  const context = promptContext || `
-Issue ${issue.identifier}: "${issue.title}"
-${issue.description ? `Description: ${issue.description}` : ""}
-${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
-`.trim();
-
-  const prompt = `
-You are Claude, an AI assistant helping with Linear issues. You have access to a codebase.
-
-${context}
-
-Please help with this request. You have access to the codebase at ${REPO_PATH}.
-Investigate the issue and provide a clear, helpful response.
-`.trim();
+  const prompt = buildPrompt(session, promptContext, REPO_PATH);
 
   console.log(`\n🤖 Running agent for ${issue.identifier}...`);
   console.log(`📝 Prompt: ${prompt.slice(0, 200)}...`);
@@ -237,16 +182,16 @@ app.post("/webhook", async (c) => {
   const body = await c.req.text();
 
   // Verify signature
-  if (!verifySignature(body, signature)) {
+  if (!verifySignature(body, signature, WEBHOOK_SECRET)) {
     console.warn("Invalid webhook signature");
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  const payload: LinearWebhookPayload = JSON.parse(body);
+  const payload = parseWebhookPayload(body);
   console.log(`\n📥 Webhook: ${payload.type} / ${payload.action}`);
 
   // Handle agent session events
-  if (payload.type === "AgentSessionEvent" && payload.action === "created") {
+  if (isAgentSessionCreated(payload)) {
     // Save payload for debugging
     const fs = require("fs");
     fs.writeFileSync("/tmp/linear-webhook-payload.json", JSON.stringify(payload, null, 2));

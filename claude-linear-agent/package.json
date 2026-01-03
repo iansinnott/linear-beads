@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "agent": "bun run index.ts",
-    "server": "bun run server.ts"
+    "server": "bun run server.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"
