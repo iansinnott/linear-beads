@@ -17,6 +17,7 @@ That's it. The agent will walk you through setup (install, auth, etc.) and confi
 **Download a binary** from [releases](https://github.com/nikvdp/linear-beads/releases) and add it to your PATH.
 
 **Or with bun:**
+
 ```bash
 bun install -g github:nikvdp/linear-beads
 ```
@@ -45,9 +46,18 @@ Each repository gets its own Linear project. When you run `lb init`, it creates 
 ### Offline Mode
 
 When you lose internet connectivity, `lb` continues working:
+
 - All reads work from local SQLite cache
 - Writes queue in an outbox and sync when you're back online
 - `lb sync` shows a friendly message instead of failing
+
+## Dev Setup CLI
+
+Add this alias to your shell config:
+
+```bash
+alias lb='bun run /Users/ian/dev/linear-beads/src/cli.ts'
+```
 
 ### Local-Only Mode
 
@@ -55,11 +65,12 @@ For pure local usage (no Linear backend), add to `.lb/config.jsonc`:
 
 ```jsonc
 {
-  "local_only": true
+  "local_only": true,
 }
 ```
 
 In local-only mode:
+
 - `lb sync` is disabled (shows a message)
 - `lb create` generates LOCAL-001, LOCAL-002, etc. IDs
 - All commands work from local SQLite only

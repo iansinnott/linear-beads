@@ -5,6 +5,7 @@
 This project uses **lb** for issue tracking via Linear.
 
 **Quick reference:**
+
 - `lb sync` - Sync with Linear
 - `lb ready` - Find unblocked work
 - `lb create "Title" -d "Description"` - Create issue
@@ -17,16 +18,12 @@ Run `lb --help` for full command list.
 Issues in **Triage** status are human-created items that need clarification before work can begin. This is different from Linear's default use (integration-created issues).
 
 **Workflow:**
+
 1. Human creates a rough idea or request → lands in Triage
 2. Human refines the issue (adds details, acceptance criteria, etc.)
 3. Human moves to Backlog/Todo when ready for agent work
 
 **For agents:** Triage issues are automatically excluded from `lb ready`. If you see a triage issue via `lb list`, leave it alone - it needs human input first.
-
-**Setup:** Add this alias to your shell config:
-```bash
-alias lb='bun run /Users/ian/dev/linear-beads/src/cli.ts'
-```
 
 ---
 
@@ -75,28 +72,30 @@ lb close GENT-XXX --reason "Brief summary of what was done"
 - **Verification steps** that confirmed the fix works
 
 Use `mcp__linear-server__create_comment` to add comments:
+
 ```
 mcp__linear-server__create_comment with issueId: "GENT-XXX", body: "## What I learned\n\n..."
 ```
 
 **Why this matters:**
+
 - Future agents (and humans) will read these issues for context
 - Prevents re-discovering the same constraints
 - Creates institutional knowledge that persists across sessions
 
 ### Key Commands Reference
 
-| Command | Purpose |
-|---------|---------|
-| `lb sync` | Sync with Linear |
-| `lb ready` | Show unblocked issues you can work on |
-| `lb list` | Show all issues |
-| `lb show GENT-XXX` | Full issue details |
-| `lb update GENT-XXX --status in_progress` | Claim work |
-| `lb close GENT-XXX --reason "why"` | Complete work |
-| `lb create "Title" --parent GENT-XXX -d "..."` | Create subtask |
-| `lb update GENT-XXX --blocked-by GENT-YYY` | Set dependency |
-| `lb update GENT-XXX --blocks GENT-YYY` | This issue blocks another |
+| Command                                        | Purpose                               |
+| ---------------------------------------------- | ------------------------------------- |
+| `lb sync`                                      | Sync with Linear                      |
+| `lb ready`                                     | Show unblocked issues you can work on |
+| `lb list`                                      | Show all issues                       |
+| `lb show GENT-XXX`                             | Full issue details                    |
+| `lb update GENT-XXX --status in_progress`      | Claim work                            |
+| `lb close GENT-XXX --reason "why"`             | Complete work                         |
+| `lb create "Title" --parent GENT-XXX -d "..."` | Create subtask                        |
+| `lb update GENT-XXX --blocked-by GENT-YYY`     | Set dependency                        |
+| `lb update GENT-XXX --blocks GENT-YYY`         | This issue blocks another             |
 
 ### Dependency Management
 
@@ -119,11 +118,13 @@ lb update GENT-P3 --blocked-by GENT-P2   # Phase 3 blocked by Phase 2
 ```
 
 **If lb commands don't work for dependencies**, use Linear MCP tools directly:
+
 ```
 mcp__linear-server__update_issue with blockedBy: ["GENT-XXX"]
 ```
 
 **Why dependencies matter:**
+
 - `lb ready` shows only unblocked work (what can actually be started)
 - Prevents wasted effort on tasks whose prerequisites aren't done
 - Documents the intended execution order for handoff
@@ -146,6 +147,7 @@ Commit atomically as you work (one logical change per commit) unless told otherw
 ## Versioning
 
 After committing changes, consider whether a version bump is warranted. If the changes add features, fix bugs, or make breaking changes:
+
 1. Update version in `package.json` and `src/cli.ts`
 2. Add entry to `CHANGELOG.md`
 
@@ -172,6 +174,7 @@ Version follows `0.X.0` format where X maps to the changelog version (e.g., v11 
 7. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
+
 - Work is NOT complete until `git push` succeeds
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
