@@ -2,6 +2,7 @@
  * Integration tests for the webhook endpoint
  *
  * Tests the full HTTP request/response cycle with mocked external dependencies.
+ * IMPORTANT: Mocks the Claude Agent SDK to verify agent invocation behavior.
  *
  * Run with: bun test webhook.test.ts
  */
@@ -18,6 +19,26 @@ if (!WEBHOOK_SECRET) {
 // Track fetch calls
 const fetchCalls: Array<{ url: string; options: RequestInit }> = [];
 const originalFetch = globalThis.fetch;
+
+// Track agent invocations - CRITICAL for testing infinite loop prevention
+// AIDEV-NOTE: This is how we verify agents are NOT called for self-triggers, stop signals, etc.
+const agentInvocations: Array<{ prompt: string; options: unknown }> = [];
+
+// Mock the Claude Agent SDK BEFORE importing server
+// This intercepts all query() calls and records them without spawning actual agents
+mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+  query: (args: { prompt: string; options: unknown }) => {
+    agentInvocations.push(args);
+    // Return an async iterator that immediately completes with a result
+    return (async function* () {
+      yield {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "Mocked agent response" }] },
+      };
+      yield { type: "result", subtype: "success", num_turns: 1 };
+    })();
+  },
+}));
 
 // Mock fetch to intercept Linear API calls
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -101,6 +122,7 @@ function createSessionPayload(overrides: Record<string, unknown> = {}) {
 describe("Webhook Endpoint", () => {
   beforeEach(() => {
     fetchCalls.length = 0; // Clear fetch calls
+    agentInvocations.length = 0; // Clear agent invocations
   });
 
   test("GET / returns health check", async () => {
@@ -200,6 +222,7 @@ describe("Webhook Endpoint", () => {
 describe("Prompted Events (Multi-turn)", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
+    agentInvocations.length = 0;
   });
 
   test("POST /webhook handles prompted events", async () => {
@@ -349,6 +372,7 @@ describe("Prompted Events (Multi-turn)", () => {
 describe("Self-trigger Prevention", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
+    agentInvocations.length = 0;
   });
 
   test("POST /webhook skips self-triggered sessions", async () => {
@@ -419,5 +443,184 @@ describe("Webhook Signature Verification", () => {
     const response = await server.fetch(request);
 
     expect(response.status).toBe(401);
+  });
+});
+
+// AIDEV-NOTE: These tests verify the Claude Agent SDK is/isn't called
+// This is CRITICAL for preventing infinite loops - if agents spawn when they shouldn't,
+// we get runaway process creation (see docs/incidents/2026-01-04-prompted-event-loop-rca.md)
+describe("Agent Invocation Verification", () => {
+  beforeEach(() => {
+    fetchCalls.length = 0;
+    agentInvocations.length = 0;
+  });
+
+  test("agent IS called for valid created event", async () => {
+    const request = createSignedRequest(createSessionPayload());
+    await server.fetch(request);
+
+    // Give async runAgent time to execute
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(agentInvocations.length).toBe(1);
+    // Prompt uses promptContext from payload when provided
+    expect(agentInvocations[0].prompt).toContain("<issue>test</issue>");
+  });
+
+  test("agent IS called for valid prompted event", async () => {
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: `verify-prompted-${Date.now()}`,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-99",
+          title: "Test Issue",
+        },
+      },
+      agentActivity: {
+        id: `verify-activity-${Date.now()}`,
+        content: {
+          type: "prompt",
+          body: "Please help with this follow-up",
+        },
+      },
+      promptContext: "<issue>context</issue>",
+    };
+
+    const request = createSignedRequest(payload);
+    await server.fetch(request);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(agentInvocations.length).toBe(1);
+    expect(agentInvocations[0].prompt).toContain("Please help with this follow-up");
+  });
+
+  test("agent is NOT called for self-trigger", async () => {
+    const agentUserId = "agent-user-self";
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "created",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: agentUserId,
+      agentSession: {
+        id: `no-agent-self-${Date.now()}`,
+        issueId: "issue-456",
+        status: "pending",
+        type: "commentThread",
+        creatorId: agentUserId, // Same as appUserId = self-trigger
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+        },
+        comment: { id: "c1", body: "@claude help" },
+      },
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+    const json = await response.json();
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(json.skipped).toBe("self-trigger");
+    expect(agentInvocations.length).toBe(0); // CRITICAL: No agent spawned
+  });
+
+  test("agent is NOT called for stop signal", async () => {
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: `no-agent-stop-${Date.now()}`,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: { id: "issue-456", identifier: "TEST-1", title: "Test" },
+      },
+      agentActivity: {
+        id: `stop-${Date.now()}`,
+        signal: "stop",
+        content: { type: "prompt", body: "stop" },
+      },
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+    const json = await response.json();
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(json.action).toBe("stop-acknowledged");
+    expect(agentInvocations.length).toBe(0); // CRITICAL: No agent spawned
+  });
+
+  test("agent is NOT called for duplicate created event", async () => {
+    const payload = createSessionPayload();
+
+    // First request - agent should be called
+    const request1 = createSignedRequest(payload);
+    await server.fetch(request1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(agentInvocations.length).toBe(1);
+
+    // Second request with same session - agent should NOT be called again
+    const request2 = createSignedRequest(payload);
+    const response2 = await server.fetch(request2);
+    const json2 = await response2.json();
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(json2.skipped).toBe("duplicate");
+    expect(agentInvocations.length).toBe(1); // Still just 1, not 2
+  });
+
+  test("agent is NOT called for duplicate prompted event", async () => {
+    const sessionId = `no-dup-prompted-${Date.now()}`;
+    const activityId = `activity-dup-${Date.now()}`;
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: sessionId,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: { id: "issue-456", identifier: "TEST-1", title: "Test" },
+      },
+      agentActivity: {
+        id: activityId,
+        content: { type: "prompt", body: "Hello" },
+      },
+    };
+
+    // First request - agent should be called
+    const request1 = createSignedRequest(payload);
+    await server.fetch(request1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(agentInvocations.length).toBe(1);
+
+    // Second request with same activity ID - agent should NOT be called
+    const request2 = createSignedRequest(payload);
+    const response2 = await server.fetch(request2);
+    const json2 = await response2.json();
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(json2.skipped).toBe("duplicate");
+    expect(agentInvocations.length).toBe(1); // Still just 1
   });
 });
