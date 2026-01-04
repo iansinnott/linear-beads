@@ -76,56 +76,7 @@ When you lose internet connectivity, `lb` continues working:
 - Writes queue in an outbox and sync when you're back online
 - `lb sync` shows a friendly message instead of failing
 
-## Dev Setup (from source)
-
-For development on `lb` itself:
-
-### 1. Prerequisites
-
-- [Bun](https://bun.sh) - `curl -fsSL https://bun.sh/install | bash`
-- A Linear account with API access
-
-### 2. Clone and install
-
-```bash
-git clone git@github.com:iansinnott/linear-beads.git
-cd linear-beads
-bun install
-```
-
-### 3. Add the `lb` alias
-
-Add to your shell config (`~/.zshrc` or `~/.bashrc`):
-
-```bash
-alias lb='bun run /path/to/linear-beads/src/cli.ts'
-```
-
-Then reload: `source ~/.zshrc`
-
-### 4. Authenticate with Linear
-
-```bash
-lb auth
-```
-
-You'll need a Linear API key from https://linear.app/settings/api
-
-### 5. Initialize in your project
-
-```bash
-cd /your/project
-lb init
-lb sync
-```
-
-This creates `.lb/` and syncs with Linear. Your issues are now available via `lb list`, `lb ready`, etc.
-
-### 6. (Optional) Claude Code integration
-
-If using Claude Code, the project's `AGENTS.md` already contains instructions. Claude will use `lb` for task tracking automatically.
-
-### Local-Only Mode
+## Local-Only Mode
 
 For pure local usage (no Linear backend), add to `.lb/config.jsonc`:
 

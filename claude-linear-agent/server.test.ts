@@ -455,28 +455,28 @@ describe("parseForClarification", () => {
     expect(result.cleanedText).toBe("What database should we use?");
   });
 
-  test("handles marker with whitespace", () => {
+  test("detects marker with preamble text before it", () => {
     const result = parseForClarification(
-      "  [NEEDS_CLARIFICATION]  \n\nCould you clarify the requirements?"
+      "Here's what I found:\n\n[NEEDS_CLARIFICATION]\n\nI have some questions."
     );
     expect(result.needsClarification).toBe(true);
-    expect(result.cleanedText).toBe("Could you clarify the requirements?");
+    expect(result.cleanedText).toBe("Here's what I found:\n\nI have some questions.");
+  });
+
+  test("handles marker in middle of response", () => {
+    const result = parseForClarification(
+      "I analyzed the codebase.\n[NEEDS_CLARIFICATION]\n1. Which approach?\n2. Timeline?"
+    );
+    expect(result.needsClarification).toBe(true);
+    expect(result.cleanedText).toBe(
+      "I analyzed the codebase.\n\n1. Which approach?\n2. Timeline?"
+    );
   });
 
   test("returns false for normal response", () => {
     const result = parseForClarification("I've completed the task successfully.");
     expect(result.needsClarification).toBe(false);
     expect(result.cleanedText).toBe("I've completed the task successfully.");
-  });
-
-  test("returns false when marker not at start", () => {
-    const result = parseForClarification(
-      "Here's my response.\n[NEEDS_CLARIFICATION] This shouldn't trigger."
-    );
-    expect(result.needsClarification).toBe(false);
-    expect(result.cleanedText).toBe(
-      "Here's my response.\n[NEEDS_CLARIFICATION] This shouldn't trigger."
-    );
   });
 
   test("handles empty string", () => {

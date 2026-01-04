@@ -251,18 +251,33 @@ export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";
 
 /**
  * Check if agent response is asking for clarification
+ * Searches for the marker anywhere in the response - the agent might add
+ * preamble text before it (e.g., "Here's what I found:\n\n[NEEDS_CLARIFICATION]")
+ *
  * Returns { needsClarification: boolean, cleanedText: string }
+ * - cleanedText includes any preamble before the marker, then the rest after it
  */
 export function parseForClarification(text: string): {
   needsClarification: boolean;
   cleanedText: string;
 } {
-  const trimmed = text.trim();
-  if (trimmed.startsWith(CLARIFICATION_MARKER)) {
+  const markerIndex = text.indexOf(CLARIFICATION_MARKER);
+
+  if (markerIndex !== -1) {
+    // Found the marker - include preamble (if any) and content after marker
+    const preamble = text.slice(0, markerIndex).trim();
+    const afterMarker = text.slice(markerIndex + CLARIFICATION_MARKER.length).trim();
+
+    // Combine preamble and content, separated by newline if both exist
+    const cleanedText = preamble
+      ? `${preamble}\n\n${afterMarker}`
+      : afterMarker;
+
     return {
       needsClarification: true,
-      cleanedText: trimmed.slice(CLARIFICATION_MARKER.length).trim(),
+      cleanedText,
     };
   }
+
   return { needsClarification: false, cleanedText: text };
 }

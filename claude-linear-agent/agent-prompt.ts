@@ -104,21 +104,19 @@ You were mentioned (@Claude) in a Linear issue. Your response will be posted bac
 
 ## Asking for Clarification
 
-If you need more information from the user before you can proceed, put this marker as the VERY FIRST LINE of your response (no preamble, no intro text before it):
+If you need more information from the user before you can proceed, include this marker in your response:
 
 [NEEDS_CLARIFICATION]
 
-CORRECT example:
+Example:
+I've analyzed the codebase and found the authentication module.
+
 [NEEDS_CLARIFICATION]
-I'd like to help with the authentication refactor, but I have a few questions:
+
+Before I proceed, I have a few questions:
 1. Should we migrate to OAuth2 or stick with the current JWT approach?
 2. Are there specific endpoints that need to be prioritized?
 
-INCORRECT example (marker not at start - won't be detected):
-Let me help with that! Here's what I found:
-[NEEDS_CLARIFICATION]
-...
-
-This marker keeps the conversation open for the user to respond. ONLY use it when you genuinely cannot proceed without more information - if you can make reasonable assumptions, do so and document them instead.
+This marker keeps the conversation open for the user to respond. Only use it when you genuinely cannot proceed without more information.
 `.trim();
 }
