@@ -4,6 +4,9 @@
 # lb data (all local)
 .lb/
 
+# Temp/logs
+tmp/
+
 # Dependencies
 node_modules/
 

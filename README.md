@@ -76,6 +76,28 @@ In local-only mode:
 - All commands work from local SQLite only
 - Great for AI-only workflows or trying out lb without Linear
 
+## Linear Agent
+
+The `claude-linear-agent/` directory contains a webhook server that responds to `@Claude` mentions in Linear issues using the Claude Agent SDK.
+
+### Running the Agent
+
+```bash
+bun run agent:dev
+```
+
+This starts the server with hot reload and logs to `tmp/server.log` for debugging.
+
+### Customizing Agent Behavior
+
+Edit `claude-linear-agent/agent-prompt.ts` to customize how the agent behaves. This file defines:
+
+- **`AgentPromptContext`** - typed context available when building prompts (extend as needed)
+- **`buildAgentPrompt()`** - builds the full prompt from context
+- **`getSystemInstructions()`** - the agent's core personality and guidelines
+
+See `claude-linear-agent/CLAUDE.md` for full dev setup including ngrok tunneling.
+
 ## License
 
 MIT

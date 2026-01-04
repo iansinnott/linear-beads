@@ -8,7 +8,6 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { createHmac } from "crypto";
 import {
   verifySignature,
-  buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
   isAgentSessionPrompted,
@@ -17,9 +16,12 @@ import {
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
+  parseForClarification,
+  CLARIFICATION_MARKER,
   type LinearWebhookPayload,
   type AgentSessionData,
 } from "./lib";
+import { buildAgentPrompt } from "./agent-prompt";
 
 // Sample payload from actual Linear webhook (sanitized)
 const SAMPLE_PAYLOAD: LinearWebhookPayload = {
@@ -127,32 +129,55 @@ describe("isAgentSessionCreated", () => {
   });
 });
 
-describe("buildPrompt", () => {
+describe("buildAgentPrompt", () => {
   const session: AgentSessionData = SAMPLE_PAYLOAD.agentSession!;
 
   test("uses promptContext when provided", () => {
-    const prompt = buildPrompt(session, "<custom context>", "/repo");
+    const prompt = buildAgentPrompt({
+      session,
+      promptContext: "<custom context>",
+      repoPath: "/repo",
+    });
     expect(prompt).toContain("<custom context>");
     expect(prompt).toContain("/repo");
   });
 
   test("builds context from session when no promptContext", () => {
-    const prompt = buildPrompt(session, undefined, "/repo");
+    const prompt = buildAgentPrompt({
+      session,
+      repoPath: "/repo",
+    });
     expect(prompt).toContain("GENT-45");
     expect(prompt).toContain("a quick test issue");
     expect(prompt).toContain("a secret number for claude: 42");
   });
 
   test("includes comment body when present", () => {
-    const prompt = buildPrompt(session, undefined, "/repo");
+    const prompt = buildAgentPrompt({
+      session,
+      repoPath: "/repo",
+    });
     expect(prompt).toContain("@claude can you help me with this?");
   });
 
   test("throws when no issue in session", () => {
     const noIssueSession = { ...session, issue: undefined };
-    expect(() => buildPrompt(noIssueSession, undefined, "/repo")).toThrow(
-      "No issue data in session"
-    );
+    expect(() =>
+      buildAgentPrompt({
+        session: noIssueSession,
+        repoPath: "/repo",
+      })
+    ).toThrow("No issue data in session");
+  });
+
+  test("includes user message for follow-ups", () => {
+    const prompt = buildAgentPrompt({
+      session,
+      repoPath: "/repo",
+      userMessage: "Can you also check the tests?",
+    });
+    expect(prompt).toContain("Can you also check the tests?");
+    expect(prompt).toContain("Follow-up Message");
   });
 });
 
@@ -418,5 +443,65 @@ describe("Payload Structure", () => {
     expect(creator?.id).toBeDefined();
     expect(creator?.name).toBeDefined();
     expect(creator?.email).toBeDefined();
+  });
+});
+
+describe("parseForClarification", () => {
+  test("detects clarification marker at start", () => {
+    const result = parseForClarification(
+      "[NEEDS_CLARIFICATION]\nWhat database should we use?"
+    );
+    expect(result.needsClarification).toBe(true);
+    expect(result.cleanedText).toBe("What database should we use?");
+  });
+
+  test("handles marker with whitespace", () => {
+    const result = parseForClarification(
+      "  [NEEDS_CLARIFICATION]  \n\nCould you clarify the requirements?"
+    );
+    expect(result.needsClarification).toBe(true);
+    expect(result.cleanedText).toBe("Could you clarify the requirements?");
+  });
+
+  test("returns false for normal response", () => {
+    const result = parseForClarification("I've completed the task successfully.");
+    expect(result.needsClarification).toBe(false);
+    expect(result.cleanedText).toBe("I've completed the task successfully.");
+  });
+
+  test("returns false when marker not at start", () => {
+    const result = parseForClarification(
+      "Here's my response.\n[NEEDS_CLARIFICATION] This shouldn't trigger."
+    );
+    expect(result.needsClarification).toBe(false);
+    expect(result.cleanedText).toBe(
+      "Here's my response.\n[NEEDS_CLARIFICATION] This shouldn't trigger."
+    );
+  });
+
+  test("handles empty string", () => {
+    const result = parseForClarification("");
+    expect(result.needsClarification).toBe(false);
+    expect(result.cleanedText).toBe("");
+  });
+
+  test("handles marker alone", () => {
+    const result = parseForClarification("[NEEDS_CLARIFICATION]");
+    expect(result.needsClarification).toBe(true);
+    expect(result.cleanedText).toBe("");
+  });
+
+  test("preserves markdown formatting in cleaned text", () => {
+    const result = parseForClarification(
+      "[NEEDS_CLARIFICATION]\n## Questions\n1. First question?\n2. Second question?"
+    );
+    expect(result.needsClarification).toBe(true);
+    expect(result.cleanedText).toBe(
+      "## Questions\n1. First question?\n2. Second question?"
+    );
+  });
+
+  test("CLARIFICATION_MARKER constant matches expected value", () => {
+    expect(CLARIFICATION_MARKER).toBe("[NEEDS_CLARIFICATION]");
   });
 });

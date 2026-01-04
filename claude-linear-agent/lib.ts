@@ -148,38 +148,6 @@ export function verifySignature(
 }
 
 /**
- * Build prompt from session data
- */
-export function buildPrompt(
-  session: AgentSessionData,
-  promptContext: string | undefined,
-  repoPath: string
-): string {
-  const issue = session.issue;
-  if (!issue) {
-    throw new Error("No issue data in session");
-  }
-
-  // Use Linear's provided context or build our own
-  const context =
-    promptContext ||
-    `
-Issue ${issue.identifier}: "${issue.title}"
-${issue.description ? `Description: ${issue.description}` : ""}
-${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
-`.trim();
-
-  return `
-You are Claude, an AI assistant helping with Linear issues. You have access to a codebase.
-
-${context}
-
-Please help with this request. You have access to the codebase at ${repoPath}.
-Investigate the issue and provide a clear, helpful response.
-`.trim();
-}
-
-/**
  * Parse webhook payload
  */
 export function parseWebhookPayload(body: string): LinearWebhookPayload {
@@ -275,4 +243,26 @@ export function createActivityMutation(
       },
     },
   };
+}
+
+// AIDEV-NOTE: Marker used by agent to signal it needs user clarification
+// When present, we emit "elicitation" instead of "response", keeping session in awaitingInput state
+export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";
+
+/**
+ * Check if agent response is asking for clarification
+ * Returns { needsClarification: boolean, cleanedText: string }
+ */
+export function parseForClarification(text: string): {
+  needsClarification: boolean;
+  cleanedText: string;
+} {
+  const trimmed = text.trim();
+  if (trimmed.startsWith(CLARIFICATION_MARKER)) {
+    return {
+      needsClarification: true,
+      cleanedText: trimmed.slice(CLARIFICATION_MARKER.length).trim(),
+    };
+  }
+  return { needsClarification: false, cleanedText: text };
 }

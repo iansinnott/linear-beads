@@ -178,7 +178,10 @@ function loadConfig(): LoadedConfig {
   }
 
   // 3. Environment variables override everything except CLI
-  if (process.env.LINEAR_API_KEY) {
+  // Prefer LINEAR_ACCESS_TOKEN (OAuth token, e.g. Claude identity) over LINEAR_API_KEY (personal key)
+  if (process.env.LINEAR_ACCESS_TOKEN) {
+    config.api_key = process.env.LINEAR_ACCESS_TOKEN;
+  } else if (process.env.LINEAR_API_KEY) {
     config.api_key = process.env.LINEAR_API_KEY;
   }
   if (process.env.LB_TEAM_ID) {
@@ -232,7 +235,7 @@ export function getApiKey(): string {
   const key = getOption("api_key");
   if (!key) {
     throw new Error(
-      "LINEAR_API_KEY environment variable is required. Set it via LINEAR_API_KEY env var."
+      "Linear API credentials required. Set LINEAR_ACCESS_TOKEN (OAuth) or LINEAR_API_KEY (personal) env var."
     );
   }
   return key;

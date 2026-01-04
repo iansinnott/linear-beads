@@ -1,5 +1,22 @@
 # lb-cli
 
+## Running the Linear Agent Server
+
+When asked to "run the server" or start the Linear agent, use:
+
+```bash
+bun run agent:dev
+```
+
+This starts `claude-linear-agent/server.ts` with `--watch` and tees output to `tmp/server.log`. Logs persist there so you can grep over them later:
+
+```bash
+grep "error" tmp/server.log
+tail -100 tmp/server.log
+```
+
+---
+
 ## Issue Tracking
 
 This project uses **lb** for issue tracking via Linear.

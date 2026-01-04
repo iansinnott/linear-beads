@@ -9,7 +9,6 @@ import { Hono } from "hono";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   verifySignature,
-  buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
   isAgentSessionPrompted,
@@ -18,10 +17,12 @@ import {
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
+  parseForClarification,
   type LinearWebhookPayload,
   type AgentSessionData,
   type ActivityContent,
 } from "./lib";
+import { buildAgentPrompt } from "./agent-prompt";
 
 const app = new Hono();
 
@@ -72,7 +73,11 @@ function sanitizeMentions(text: string): string {
 }
 
 // Structured logging helper
-function log(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void {
+function log(
+  level: "info" | "warn" | "error",
+  message: string,
+  data?: Record<string, unknown>
+): void {
   const entry = {
     timestamp: new Date().toISOString(),
     level,
@@ -182,26 +187,13 @@ async function runAgent(
     return;
   }
 
-  // Build prompt differently for initial vs follow-up messages
-  let prompt: string;
-  if (userMessage) {
-    // Prompted event: user sent a follow-up message
-    // Include issue context but make the user's message the focus
-    prompt = `
-You are Claude, an AI assistant helping with Linear issues. You have access to a codebase.
-
-Issue context:
-${promptContext || `Issue ${issue.identifier}: "${issue.title}"`}
-
-The user sent a follow-up message:
-${userMessage}
-
-Please help with this request. You have access to the codebase at ${REPO_PATH}.
-`.trim();
-  } else {
-    // Created event: initial mention
-    prompt = buildPrompt(session, promptContext, REPO_PATH);
-  }
+  // Build prompt using the agent prompt module
+  const prompt = buildAgentPrompt({
+    repoPath: REPO_PATH,
+    session,
+    promptContext,
+    userMessage,
+  });
 
   log("info", "Starting agent run", {
     sessionId: session.id,
@@ -228,7 +220,7 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
         cwd: REPO_PATH,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit"],
+        tools: { type: "preset", preset: "claude_code" },
         includePartialMessages: false,
         abortController,
       },
@@ -315,7 +307,9 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
         }
       } else if (message.type === "user") {
         // Handle tool results - emit result feedback
-        const toolResult = message.tool_use_result as { output?: string; error?: string } | undefined;
+        const toolResult = message.tool_use_result as
+          | { output?: string; error?: string }
+          | undefined;
         if (toolResult && lastToolUseId) {
           const isError = !!toolResult.error;
           const resultText = toolResult.error || toolResult.output || "";
@@ -325,7 +319,9 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
             const preview = resultText.slice(0, 200).replace(/\n/g, " ");
             const resultSummary = isError
               ? `Error: ${preview}`
-              : preview.length > 150 ? `${preview.slice(0, 150)}...` : preview;
+              : preview.length > 150
+                ? `${preview.slice(0, 150)}...`
+                : preview;
 
             await emitActivity(session.id, {
               type: "thought",
@@ -337,8 +333,14 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
       } else if (message.type === "result") {
         // Emit completion summary with stats
         const stats = {
-          turns: message.subtype === "success" ? (message as { num_turns?: number }).num_turns : turnCount,
-          cost: message.subtype === "success" ? (message as { total_cost_usd?: number }).total_cost_usd : undefined,
+          turns:
+            message.subtype === "success"
+              ? (message as { num_turns?: number }).num_turns
+              : turnCount,
+          cost:
+            message.subtype === "success"
+              ? (message as { total_cost_usd?: number }).total_cost_usd
+              : undefined,
           tools: toolsUsed,
           files: filesAccessed.length,
         };
@@ -371,39 +373,47 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
       }
     }
 
-    // Emit final response activity
+    // Emit final activity - either response (complete) or elicitation (awaiting input)
     // AIDEV-NOTE: Linear auto-creates a comment from response activities, so we don't need postComment()
     // Removed postComment() to avoid duplicate comments and reduce self-trigger risk
     // AIDEV-NOTE: The response activity is what tells Linear to transition session to "complete" state
+    // The elicitation activity keeps session in "awaitingInput" state for user reply
     // If this fails, Linear will show indefinite loading state (see GENT-1019)
     if (responseText) {
-      const sanitized = sanitizeMentions(responseText.slice(0, 2000));
+      // Check if agent is asking for clarification
+      const { needsClarification, cleanedText } = parseForClarification(responseText);
+      const activityType = needsClarification ? "elicitation" : "response";
+      const sanitized = sanitizeMentions(cleanedText.slice(0, 2000));
+
       const responseSuccess = await emitActivity(session.id, {
-        type: "response",
+        type: activityType,
         body: sanitized,
       });
-      log(responseSuccess ? "info" : "error", "Final response activity emitted", {
+      log(responseSuccess ? "info" : "error", `Final ${activityType} activity emitted`, {
         sessionId: session.id,
         issueId: issue.id,
         issueIdentifier: issue.identifier,
         responseLength: sanitized.length,
+        activityType,
+        needsClarification,
         success: responseSuccess,
       });
 
-      // If the response activity failed, try once more
+      // If the activity failed, try once more
       if (!responseSuccess) {
-        log("warn", "Retrying final response activity", { sessionId: session.id });
+        log("warn", `Retrying final ${activityType} activity`, { sessionId: session.id });
         const retrySuccess = await emitActivity(session.id, {
-          type: "response",
+          type: activityType,
           body: sanitized,
         });
-        log(retrySuccess ? "info" : "error", "Final response retry result", {
+        log(retrySuccess ? "info" : "error", `Final ${activityType} retry result`, {
           sessionId: session.id,
           success: retrySuccess,
         });
       }
     } else {
-      const fallback = "I looked into this but couldn't formulate a response. Please try rephrasing your request.";
+      const fallback =
+        "I looked into this but couldn't formulate a response. Please try rephrasing your request.";
       const fallbackSuccess = await emitActivity(session.id, { type: "response", body: fallback });
       log("warn", "Agent completed with fallback response", {
         sessionId: session.id,
