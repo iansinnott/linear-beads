@@ -11,6 +11,8 @@ import {
   buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
+  isAgentSessionPrompted,
+  getPromptedMessage,
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
@@ -160,6 +162,73 @@ describe("createCommentMutation", () => {
     expect(mutation.query).toContain("commentCreate");
     expect(mutation.variables.issueId).toBe("issue-123");
     expect(mutation.variables.body).toBe("Hello world");
+  });
+});
+
+describe("isAgentSessionPrompted", () => {
+  test("returns true for prompted event", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(isAgentSessionPrompted(payload)).toBe(true);
+  });
+
+  test("returns false for created event", () => {
+    expect(isAgentSessionPrompted(SAMPLE_PAYLOAD)).toBe(false);
+  });
+
+  test("returns false for other event types", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Issue",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(isAgentSessionPrompted(payload)).toBe(false);
+  });
+});
+
+describe("getPromptedMessage", () => {
+  test("returns message from agentActivity.body", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentActivity: {
+        id: "activity-123",
+        type: "prompt",
+        body: "Can you check the other file?",
+      },
+    };
+    expect(getPromptedMessage(payload)).toBe("Can you check the other file?");
+  });
+
+  test("returns null when no agentActivity", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(getPromptedMessage(payload)).toBeNull();
+  });
+
+  test("returns null when agentActivity has no body", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentActivity: {
+        id: "activity-123",
+        type: "prompt",
+      },
+    };
+    expect(getPromptedMessage(payload)).toBeNull();
   });
 });
 

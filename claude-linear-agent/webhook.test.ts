@@ -197,6 +197,116 @@ describe("Webhook Endpoint", () => {
   });
 });
 
+describe("Prompted Events (Multi-turn)", () => {
+  beforeEach(() => {
+    fetchCalls.length = 0;
+  });
+
+  test("POST /webhook handles prompted events", async () => {
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: `prompted-session-${Date.now()}`,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+          description: "This is a test",
+        },
+      },
+      agentActivity: {
+        id: `activity-${Date.now()}`,
+        type: "prompt",
+        body: "Can you also check the other file?",
+      },
+      promptContext: "<issue>test context</issue>",
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.received).toBe(true);
+  });
+
+  test("POST /webhook rejects prompted event without user message", async () => {
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: `prompted-no-msg-${Date.now()}`,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+        },
+      },
+      // Missing agentActivity
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+
+    expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error).toBe("No user message");
+  });
+
+  test("POST /webhook deduplicates prompted events by activity ID", async () => {
+    const sessionId = `prompted-dedup-${Date.now()}`;
+    const activityId = `activity-dedup-${Date.now()}`;
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: sessionId,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+        },
+      },
+      agentActivity: {
+        id: activityId,
+        type: "prompt",
+        body: "Follow-up question",
+      },
+    };
+
+    // First request should be processed
+    const request1 = createSignedRequest(payload);
+    const response1 = await server.fetch(request1);
+    expect(response1.status).toBe(200);
+    const json1 = await response1.json();
+    expect(json1.received).toBe(true);
+    expect(json1.skipped).toBeUndefined();
+
+    // Second request with same activity ID should be deduplicated
+    const request2 = createSignedRequest(payload);
+    const response2 = await server.fetch(request2);
+    expect(response2.status).toBe(200);
+    const json2 = await response2.json();
+    expect(json2.skipped).toBe("duplicate");
+  });
+});
+
 describe("Self-trigger Prevention", () => {
   beforeEach(() => {
     fetchCalls.length = 0;

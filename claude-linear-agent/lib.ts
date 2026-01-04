@@ -8,6 +8,15 @@ import { createHmac, timingSafeEqual } from "crypto";
 // Types for Linear webhook payloads
 // AIDEV-NOTE: These types are derived from actual webhook payloads (2026-01-03)
 // See /tmp/linear-webhook-payload.json for a real example
+// Agent activity from user (for prompted events)
+export interface AgentActivityData {
+  id: string;
+  type: string; // "prompt" for user messages
+  body?: string; // The user's message
+  createdAt?: string;
+  userId?: string;
+}
+
 export interface LinearWebhookPayload {
   action: string;
   type: string;
@@ -17,6 +26,7 @@ export interface LinearWebhookPayload {
   oauthClientId?: string;
   appUserId?: string; // Our agent's user ID - use for self-trigger detection
   agentSession?: AgentSessionData;
+  agentActivity?: AgentActivityData; // Present for "prompted" events
   promptContext?: string;
   previousComments?: Array<{
     id: string;
@@ -165,6 +175,21 @@ export function parseWebhookPayload(body: string): LinearWebhookPayload {
  */
 export function isAgentSessionCreated(payload: LinearWebhookPayload): boolean {
   return payload.type === "AgentSessionEvent" && payload.action === "created";
+}
+
+/**
+ * Check if this is an agent session prompted event (multi-turn follow-up)
+ */
+export function isAgentSessionPrompted(payload: LinearWebhookPayload): boolean {
+  return payload.type === "AgentSessionEvent" && payload.action === "prompted";
+}
+
+/**
+ * Extract user message from prompted event
+ * The user's follow-up message is in agentActivity.body
+ */
+export function getPromptedMessage(payload: LinearWebhookPayload): string | null {
+  return payload.agentActivity?.body || null;
 }
 
 /**

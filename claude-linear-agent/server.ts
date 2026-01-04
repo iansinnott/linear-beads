@@ -12,6 +12,8 @@ import {
   buildPrompt,
   parseWebhookPayload,
   isAgentSessionCreated,
+  isAgentSessionPrompted,
+  getPromptedMessage,
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
@@ -149,25 +151,49 @@ async function emitActivity(
 }
 
 // Run Claude Agent on an issue
-async function runAgent(session: AgentSessionData, promptContext?: string): Promise<void> {
+// For prompted events (follow-ups), userMessage contains the user's new message
+async function runAgent(session: AgentSessionData, promptContext?: string, userMessage?: string): Promise<void> {
   const issue = session.issue;
   if (!issue) {
     log("error", "No issue data in session", { sessionId: session.id });
     return;
   }
 
-  const prompt = buildPrompt(session, promptContext, REPO_PATH);
+  // Build prompt differently for initial vs follow-up messages
+  let prompt: string;
+  if (userMessage) {
+    // Prompted event: user sent a follow-up message
+    // Include issue context but make the user's message the focus
+    prompt = `
+You are Claude, an AI assistant helping with Linear issues. You have access to a codebase.
+
+Issue context:
+${promptContext || `Issue ${issue.identifier}: "${issue.title}"`}
+
+The user sent a follow-up message:
+${userMessage}
+
+Please help with this request. You have access to the codebase at ${REPO_PATH}.
+`.trim();
+  } else {
+    // Created event: initial mention
+    prompt = buildPrompt(session, promptContext, REPO_PATH);
+  }
 
   log("info", "Starting agent run", {
     sessionId: session.id,
     issueIdentifier: issue.identifier,
     promptLength: prompt.length,
+    isFollowUp: !!userMessage,
   });
 
   // CRITICAL: Emit activity immediately to avoid "unresponsive" status (must be within 10s)
+  const activityMessage = userMessage
+    ? `Processing follow-up message...`
+    : `Analyzing issue ${issue.identifier}...`;
   await emitActivity(session.id, {
     type: "thought",
-    body: `Analyzing issue ${issue.identifier}...`,
+    body: activityMessage,
   }, true); // ephemeral - will be replaced
 
   try {
@@ -319,6 +345,60 @@ app.post("/webhook", async (c) => {
     // Run agent asynchronously (don't block webhook response)
     runAgent(session, payload.promptContext).catch((error) => {
       log("error", "Unhandled error in runAgent", {
+        sessionId: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return c.json({ received: true });
+  }
+
+  // Handle prompted events (multi-turn follow-ups)
+  if (isAgentSessionPrompted(payload)) {
+    const session = payload.agentSession;
+    if (!session) {
+      log("error", "No agentSession in prompted payload");
+      return c.json({ error: "No session data" }, 400);
+    }
+
+    const userMessage = getPromptedMessage(payload);
+    if (!userMessage) {
+      log("error", "No user message in prompted payload", {
+        sessionId: session.id,
+        agentActivity: payload.agentActivity,
+      });
+      return c.json({ error: "No user message" }, 400);
+    }
+
+    // AIDEV-NOTE: For prompted events, we use a unique key combining session + activity ID
+    // This allows multiple prompts in the same session while still preventing duplicates
+    const dedupeKey = `${session.id}:${payload.agentActivity?.id || "unknown"}`;
+    if (isSessionProcessed(dedupeKey)) {
+      log("warn", "Duplicate prompted event detected, skipping", {
+        sessionId: session.id,
+        activityId: payload.agentActivity?.id,
+      });
+      return c.json({ received: true, skipped: "duplicate" });
+    }
+    markSessionProcessed(dedupeKey);
+
+    log("info", "Processing prompted event (multi-turn)", {
+      sessionId: session.id,
+      issueIdentifier: session.issue?.identifier,
+      userMessage: userMessage.slice(0, 100),
+      activityId: payload.agentActivity?.id,
+    });
+
+    // Save payload for debugging (in dev only)
+    if (process.env.NODE_ENV !== "production") {
+      const fs = require("fs");
+      fs.writeFileSync("/tmp/linear-webhook-prompted.json", JSON.stringify(payload, null, 2));
+    }
+
+    // Run agent with the follow-up message
+    // Include promptContext for issue context, but the primary input is the user's new message
+    runAgent(session, payload.promptContext, userMessage).catch((error) => {
+      log("error", "Unhandled error in runAgent (prompted)", {
         sessionId: session.id,
         error: error instanceof Error ? error.message : String(error),
       });
