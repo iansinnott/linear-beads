@@ -36,6 +36,10 @@ const processedSessions = new Map<string, number>();
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_SESSIONS = 1000;
 
+// AIDEV-NOTE: Track running agents for proper cancellation on stop signal
+// Maps session ID to AbortController so we can cancel in-flight agents
+const runningAgents = new Map<string, AbortController>();
+
 function isSessionProcessed(sessionId: string): boolean {
   const timestamp = processedSessions.get(sessionId);
   if (timestamp && Date.now() - timestamp < SESSION_TTL_MS) {
@@ -153,7 +157,13 @@ async function emitActivity(
 
 // Run Claude Agent on an issue
 // For prompted events (follow-ups), userMessage contains the user's new message
-async function runAgent(session: AgentSessionData, promptContext?: string, userMessage?: string): Promise<void> {
+// AIDEV-NOTE: abortController is used to cancel the agent when user clicks stop in Linear
+async function runAgent(
+  session: AgentSessionData,
+  promptContext?: string,
+  userMessage?: string,
+  abortController?: AbortController
+): Promise<void> {
   const issue = session.issue;
   if (!issue) {
     log("error", "No issue data in session", { sessionId: session.id });
@@ -208,6 +218,7 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
         allowDangerouslySkipPermissions: true,
         tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit"],
         includePartialMessages: false,
+        abortController,
       },
     });
 
@@ -343,13 +354,22 @@ app.post("/webhook", async (c) => {
       fs.writeFileSync("/tmp/linear-webhook-payload.json", JSON.stringify(payload, null, 2));
     }
 
+    // Create AbortController for this agent run so we can cancel on stop signal
+    const abortController = new AbortController();
+    runningAgents.set(session.id, abortController);
+
     // Run agent asynchronously (don't block webhook response)
-    runAgent(session, payload.promptContext).catch((error) => {
-      log("error", "Unhandled error in runAgent", {
-        sessionId: session.id,
-        error: error instanceof Error ? error.message : String(error),
+    runAgent(session, payload.promptContext, undefined, abortController)
+      .catch((error) => {
+        log("error", "Unhandled error in runAgent", {
+          sessionId: session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        // Clean up the abort controller when done
+        runningAgents.delete(session.id);
       });
-    });
 
     return c.json({ received: true });
   }
@@ -362,15 +382,30 @@ app.post("/webhook", async (c) => {
       return c.json({ error: "No session data" }, 400);
     }
 
-    // Handle stop signal from user
-    // AIDEV-TODO: Implement proper cancellation of running agent
+    // Handle stop signal from user - cancel any running agent for this session
     if (isStopSignal(payload)) {
       log("info", "Stop signal received", {
         sessionId: session.id,
         issueIdentifier: session.issue?.identifier,
       });
-      // For now, just acknowledge - proper cancellation requires tracking running agents
-      return c.json({ received: true, action: "stop-acknowledged" });
+
+      // Cancel the running agent if one exists for this session
+      const abortController = runningAgents.get(session.id);
+      if (abortController) {
+        abortController.abort();
+        runningAgents.delete(session.id);
+        log("info", "Agent cancelled", { sessionId: session.id });
+
+        // Emit activity to Linear indicating the agent was stopped
+        await emitActivity(session.id, {
+          type: "response",
+          body: "Agent stopped by user request.",
+        });
+      } else {
+        log("info", "No running agent to cancel", { sessionId: session.id });
+      }
+
+      return c.json({ received: true, action: "stop-acknowledged", cancelled: !!abortController });
     }
 
     const userMessage = getPromptedMessage(payload);
@@ -407,14 +442,23 @@ app.post("/webhook", async (c) => {
       fs.writeFileSync("/tmp/linear-webhook-prompted.json", JSON.stringify(payload, null, 2));
     }
 
+    // Create AbortController for this agent run so we can cancel on stop signal
+    const abortController = new AbortController();
+    runningAgents.set(session.id, abortController);
+
     // Run agent with the follow-up message
     // Include promptContext for issue context, but the primary input is the user's new message
-    runAgent(session, payload.promptContext, userMessage).catch((error) => {
-      log("error", "Unhandled error in runAgent (prompted)", {
-        sessionId: session.id,
-        error: error instanceof Error ? error.message : String(error),
+    runAgent(session, payload.promptContext, userMessage, abortController)
+      .catch((error) => {
+        log("error", "Unhandled error in runAgent (prompted)", {
+          sessionId: session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        // Clean up the abort controller when done
+        runningAgents.delete(session.id);
       });
-    });
 
     return c.json({ received: true });
   }

@@ -366,6 +366,8 @@ describe("Prompted Events (Multi-turn)", () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json.action).toBe("stop-acknowledged");
+    // cancelled field indicates whether there was a running agent to cancel
+    expect(typeof json.cancelled).toBe("boolean");
   });
 });
 
@@ -563,6 +565,10 @@ describe("Agent Invocation Verification", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(json.action).toBe("stop-acknowledged");
+    // AIDEV-NOTE: cancelled=false because the mock agent completes synchronously,
+    // so there's no running agent by the time we send the stop signal.
+    // In production, a slow agent would result in cancelled=true.
+    expect(json.cancelled).toBe(false);
     expect(agentInvocations.length).toBe(0); // CRITICAL: No agent spawned
   });
 
