@@ -1,0 +1,7 @@
+# Bun configuration
+# See: https://bun.sh/docs/runtime/bunfig
+
+[test]
+# Test configuration
+# Integration tests are excluded by default (they check for RUN_INTEGRATION_TESTS env var)
+# Use: bun run test:integration

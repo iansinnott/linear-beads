@@ -1,11 +1,15 @@
 /**
  * Integration tests for lb CLI
  *
+ * These tests make REAL API calls to Linear and create actual issues.
+ * They are EXCLUDED from the default test run to avoid polluting your workspace.
+ *
  * Requires:
+ * - RUN_INTEGRATION_TESTS=true environment variable
  * - LINEAR_API_KEY environment variable
  * - LB_TEAM_KEY environment variable (or uses LIN as default)
  *
- * Run with: bun test test/integration.test.ts
+ * Run with: bun run test:integration
  */
 
 import {
@@ -21,6 +25,10 @@ import {
 import { GraphQLClient } from "graphql-request";
 import { mkdirSync, rmSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
+
+// AIDEV-NOTE: Skip all integration tests unless explicitly enabled
+// This prevents tests from creating real issues in Linear during normal test runs
+const SKIP_INTEGRATION = !process.env.RUN_INTEGRATION_TESTS;
 
 // Increase timeout for API calls
 setDefaultTimeout(30000);
@@ -110,7 +118,7 @@ async function deleteTestIssues(): Promise<void> {
   }
 }
 
-describe("lb CLI Integration Tests", () => {
+describe.skipIf(SKIP_INTEGRATION)("lb CLI Integration Tests", () => {
   beforeAll(async () => {
     // Verify API key is set
     if (!process.env.LINEAR_API_KEY) {
@@ -920,7 +928,7 @@ describe("Local-only Mode", () => {
  * Project scoping tests
  * Verifies that issues are scoped to a specific Linear project
  */
-describe("Project Scoping", () => {
+describe.skipIf(SKIP_INTEGRATION)("Project Scoping", () => {
   const testProjectName = `lb-test-project-${Date.now()}`;
   const testDir = `/tmp/lb-project-test-${Date.now()}`;
   const TEST_PREFIX = `[project-test-${Date.now()}]`;

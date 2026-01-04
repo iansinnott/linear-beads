@@ -8,11 +8,12 @@
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
+    "agent:dev": "mkdir -p tmp && bun --watch run claude-linear-agent/server.ts 2>&1 | tee tmp/server.log",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "bun test",
-    "test:integration": "bun test test/integration.test.ts",
+    "test:integration": "RUN_INTEGRATION_TESTS=true bun test test/integration.test.ts",
     "generate:types": "json2ts schemas/config.schema.json src/types/config.generated.ts",
     "build": "bun build src/cli.ts --outdir dist --target node",
     "build:bin": "bun build src/cli.ts --compile --outfile dist/lb",
