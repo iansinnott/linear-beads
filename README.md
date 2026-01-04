@@ -22,6 +22,31 @@ That's it. The agent will walk you through setup (install, auth, etc.) and confi
 bun install -g github:nikvdp/linear-beads
 ```
 
+## Quick Setup (from source)
+
+```bash
+# Install bun if needed
+curl -fsSL https://bun.sh/install | bash
+
+# Clone and install
+git clone git@github.com:iansinnott/linear-beads.git
+cd linear-beads
+bun install
+
+# Add alias to shell config (~/.zshrc or ~/.bashrc)
+echo "alias lb='bun run $(pwd)/src/cli.ts'" >> ~/.zshrc
+source ~/.zshrc
+
+# Auth with Linear (get key from https://linear.app/settings/api)
+lb auth
+
+# Init in any project
+cd /your/project
+lb init && lb sync
+```
+
+All state lives in Linear—switching machines just requires re-running these steps. `lb sync` pulls everything down.
+
 ## What happens behind the scenes
 
 When your agent runs `lb onboard`, it will:
