@@ -222,8 +222,10 @@ describe("Prompted Events (Multi-turn)", () => {
       },
       agentActivity: {
         id: `activity-${Date.now()}`,
-        type: "prompt",
-        body: "Can you also check the other file?",
+        content: {
+          type: "prompt",
+          body: "Can you also check the other file?",
+        },
       },
       promptContext: "<issue>test context</issue>",
     };
@@ -285,8 +287,10 @@ describe("Prompted Events (Multi-turn)", () => {
       },
       agentActivity: {
         id: activityId,
-        type: "prompt",
-        body: "Follow-up question",
+        content: {
+          type: "prompt",
+          body: "Follow-up question",
+        },
       },
     };
 
@@ -304,6 +308,41 @@ describe("Prompted Events (Multi-turn)", () => {
     expect(response2.status).toBe(200);
     const json2 = await response2.json();
     expect(json2.skipped).toBe("duplicate");
+  });
+
+  test("POST /webhook handles stop signal", async () => {
+    const payload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentSession: {
+        id: `stop-session-${Date.now()}`,
+        issueId: "issue-456",
+        status: "active",
+        type: "commentThread",
+        issue: {
+          id: "issue-456",
+          identifier: "TEST-1",
+          title: "Test Issue",
+        },
+      },
+      agentActivity: {
+        id: `stop-activity-${Date.now()}`,
+        signal: "stop",
+        content: {
+          type: "prompt",
+          body: "stop",
+        },
+      },
+    };
+
+    const request = createSignedRequest(payload);
+    const response = await server.fetch(request);
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.action).toBe("stop-acknowledged");
   });
 });
 

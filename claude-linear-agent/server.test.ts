@@ -13,6 +13,7 @@ import {
   isAgentSessionCreated,
   isAgentSessionPrompted,
   getPromptedMessage,
+  isStopSignal,
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
@@ -192,7 +193,7 @@ describe("isAgentSessionPrompted", () => {
 });
 
 describe("getPromptedMessage", () => {
-  test("returns message from agentActivity.body", () => {
+  test("returns message from agentActivity.content.body", () => {
     const payload: LinearWebhookPayload = {
       type: "AgentSessionEvent",
       action: "prompted",
@@ -200,8 +201,10 @@ describe("getPromptedMessage", () => {
       organizationId: "org-123",
       agentActivity: {
         id: "activity-123",
-        type: "prompt",
-        body: "Can you check the other file?",
+        content: {
+          type: "prompt",
+          body: "Can you check the other file?",
+        },
       },
     };
     expect(getPromptedMessage(payload)).toBe("Can you check the other file?");
@@ -217,7 +220,7 @@ describe("getPromptedMessage", () => {
     expect(getPromptedMessage(payload)).toBeNull();
   });
 
-  test("returns null when agentActivity has no body", () => {
+  test("returns null when agentActivity has no content", () => {
     const payload: LinearWebhookPayload = {
       type: "AgentSessionEvent",
       action: "prompted",
@@ -225,10 +228,50 @@ describe("getPromptedMessage", () => {
       organizationId: "org-123",
       agentActivity: {
         id: "activity-123",
-        type: "prompt",
       },
     };
     expect(getPromptedMessage(payload)).toBeNull();
+  });
+});
+
+describe("isStopSignal", () => {
+  test("returns true when signal is stop", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentActivity: {
+        id: "activity-123",
+        signal: "stop",
+        content: { type: "prompt", body: "stop" },
+      },
+    };
+    expect(isStopSignal(payload)).toBe(true);
+  });
+
+  test("returns false when no signal", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      agentActivity: {
+        id: "activity-123",
+        content: { type: "prompt", body: "hello" },
+      },
+    };
+    expect(isStopSignal(payload)).toBe(false);
+  });
+
+  test("returns false when no agentActivity", () => {
+    const payload: LinearWebhookPayload = {
+      type: "AgentSessionEvent",
+      action: "prompted",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(isStopSignal(payload)).toBe(false);
   });
 });
 

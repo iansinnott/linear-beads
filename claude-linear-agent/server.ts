@@ -14,6 +14,7 @@ import {
   isAgentSessionCreated,
   isAgentSessionPrompted,
   getPromptedMessage,
+  isStopSignal,
   isSelfTrigger,
   createCommentMutation,
   createActivityMutation,
@@ -359,6 +360,17 @@ app.post("/webhook", async (c) => {
     if (!session) {
       log("error", "No agentSession in prompted payload");
       return c.json({ error: "No session data" }, 400);
+    }
+
+    // Handle stop signal from user
+    // AIDEV-TODO: Implement proper cancellation of running agent
+    if (isStopSignal(payload)) {
+      log("info", "Stop signal received", {
+        sessionId: session.id,
+        issueIdentifier: session.issue?.identifier,
+      });
+      // For now, just acknowledge - proper cancellation requires tracking running agents
+      return c.json({ received: true, action: "stop-acknowledged" });
     }
 
     const userMessage = getPromptedMessage(payload);

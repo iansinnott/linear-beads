@@ -9,12 +9,16 @@ import { createHmac, timingSafeEqual } from "crypto";
 // AIDEV-NOTE: These types are derived from actual webhook payloads (2026-01-03)
 // See /tmp/linear-webhook-payload.json for a real example
 // Agent activity from user (for prompted events)
+// AIDEV-NOTE: The user message is in content.body, not directly on agentActivity
 export interface AgentActivityData {
   id: string;
-  type: string; // "prompt" for user messages
-  body?: string; // The user's message
   createdAt?: string;
   userId?: string;
+  signal?: string; // "stop" when user clicks stop button
+  content?: {
+    type: string; // "prompt" for user messages
+    body?: string; // The user's message
+  };
 }
 
 export interface LinearWebhookPayload {
@@ -186,10 +190,17 @@ export function isAgentSessionPrompted(payload: LinearWebhookPayload): boolean {
 
 /**
  * Extract user message from prompted event
- * The user's follow-up message is in agentActivity.body
+ * The user's follow-up message is in agentActivity.content.body
  */
 export function getPromptedMessage(payload: LinearWebhookPayload): string | null {
-  return payload.agentActivity?.body || null;
+  return payload.agentActivity?.content?.body || null;
+}
+
+/**
+ * Check if this is a stop signal from the user
+ */
+export function isStopSignal(payload: LinearWebhookPayload): boolean {
+  return payload.agentActivity?.signal === "stop";
 }
 
 /**
