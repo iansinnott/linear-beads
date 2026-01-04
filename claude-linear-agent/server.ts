@@ -118,11 +118,12 @@ async function postComment(issueId: string, body: string): Promise<void> {
 }
 
 // Emit agent activity to Linear (keeps session alive and shows progress)
+// Returns true if the activity was successfully created
 async function emitActivity(
   sessionId: string,
   content: { type: string; body?: string; action?: string; parameter?: string; result?: string },
   ephemeral: boolean = false
-): Promise<void> {
+): Promise<boolean> {
   const response = await fetch("https://api.linear.app/graphql", {
     method: "POST",
     headers: {
@@ -149,10 +150,21 @@ async function emitActivity(
 
   const result = (await response.json()) as {
     data?: { agentActivityCreate?: { success: boolean } };
+    errors?: Array<{ message: string }>;
   };
-  if (!result.data?.agentActivityCreate?.success) {
-    log("error", "Failed to emit activity", { sessionId, contentType: content.type, result });
+
+  const success = result.data?.agentActivityCreate?.success === true;
+
+  if (!success) {
+    log("error", "Failed to emit activity", {
+      sessionId,
+      contentType: content.type,
+      result,
+      errors: result.errors,
+    });
   }
+
+  return success;
 }
 
 // Run Claude Agent on an issue
@@ -362,24 +374,41 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
     // Emit final response activity
     // AIDEV-NOTE: Linear auto-creates a comment from response activities, so we don't need postComment()
     // Removed postComment() to avoid duplicate comments and reduce self-trigger risk
+    // AIDEV-NOTE: The response activity is what tells Linear to transition session to "complete" state
+    // If this fails, Linear will show indefinite loading state (see GENT-1019)
     if (responseText) {
       const sanitized = sanitizeMentions(responseText.slice(0, 2000));
-      await emitActivity(session.id, {
+      const responseSuccess = await emitActivity(session.id, {
         type: "response",
         body: sanitized,
       });
-      log("info", "Agent completed successfully", {
+      log(responseSuccess ? "info" : "error", "Final response activity emitted", {
         sessionId: session.id,
         issueId: issue.id,
         issueIdentifier: issue.identifier,
         responseLength: sanitized.length,
+        success: responseSuccess,
       });
+
+      // If the response activity failed, try once more
+      if (!responseSuccess) {
+        log("warn", "Retrying final response activity", { sessionId: session.id });
+        const retrySuccess = await emitActivity(session.id, {
+          type: "response",
+          body: sanitized,
+        });
+        log(retrySuccess ? "info" : "error", "Final response retry result", {
+          sessionId: session.id,
+          success: retrySuccess,
+        });
+      }
     } else {
       const fallback = "I looked into this but couldn't formulate a response. Please try rephrasing your request.";
-      await emitActivity(session.id, { type: "response", body: fallback });
+      const fallbackSuccess = await emitActivity(session.id, { type: "response", body: fallback });
       log("warn", "Agent completed with fallback response", {
         sessionId: session.id,
         issueId: issue.id,
+        success: fallbackSuccess,
       });
     }
   } catch (error) {
