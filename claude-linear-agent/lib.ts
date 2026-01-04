@@ -21,10 +21,15 @@ export interface AgentActivityData {
   id: string;
   createdAt?: string;
   updatedAt?: string;
-  userId?: string;
+  archivedAt?: string | null;
   agentSessionId?: string;
+  sourceCommentId?: string | null;
+  userId?: string;
+  sourceMetadata?: unknown | null;
   signal?: "stop" | null; // "stop" when user clicks stop button
+  signalMetadata?: unknown | null;
   ephemeral?: boolean;
+  contextualMetadata?: unknown | null;
   content: AgentActivityContent; // Required - always present in prompted events
 }
 

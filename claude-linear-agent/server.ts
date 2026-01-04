@@ -205,7 +205,7 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
   await emitActivity(session.id, {
     type: "thought",
     body: activityMessage,
-  }, true); // ephemeral - will be replaced
+  }); // persistent - keeping all events for granular tracking
 
   try {
     let responseText = "";
@@ -222,32 +222,140 @@ Please help with this request. You have access to the codebase at ${REPO_PATH}.
       },
     });
 
+    // Track stats for summary
+    let turnCount = 0;
+    let toolsUsed: string[] = [];
+    let filesAccessed: string[] = [];
+    let lastToolUseId: string | undefined;
+
     for await (const message of iterator) {
       if (message.type === "assistant") {
         for (const block of message.message.content) {
           if (block.type === "text") {
             responseText = block.text;
+            // Emit intermediate thinking for long text (helps show progress)
+            if (block.text.length > 100) {
+              const thoughtPreview = block.text.slice(0, 150).replace(/\n/g, " ");
+              await emitActivity(session.id, {
+                type: "thought",
+                body: `${thoughtPreview}...`,
+              }); // persistent - keeping all events for granular tracking
+            }
           } else if (block.type === "tool_use") {
+            lastToolUseId = block.id;
+            turnCount++;
+            if (!toolsUsed.includes(block.name)) {
+              toolsUsed.push(block.name);
+            }
+
+            // Extract meaningful info from tool input
+            const input = block.input as Record<string, unknown>;
+            let parameter = "";
+            let contextInfo = "";
+
+            switch (block.name) {
+              case "Read":
+                parameter = String(input.file_path || "").slice(-60);
+                if (parameter && !filesAccessed.includes(parameter)) {
+                  filesAccessed.push(parameter);
+                }
+                contextInfo = `Reading ${parameter}`;
+                break;
+              case "Write":
+              case "Edit":
+                parameter = String(input.file_path || "").slice(-60);
+                if (parameter && !filesAccessed.includes(parameter)) {
+                  filesAccessed.push(parameter);
+                }
+                contextInfo = `${block.name === "Write" ? "Writing" : "Editing"} ${parameter}`;
+                break;
+              case "Glob":
+                parameter = String(input.pattern || "");
+                contextInfo = `Searching for files: ${parameter}`;
+                break;
+              case "Grep":
+                parameter = String(input.pattern || "").slice(0, 40);
+                contextInfo = `Searching content: "${parameter}"`;
+                break;
+              case "Bash":
+                parameter = String(input.command || "").slice(0, 60);
+                contextInfo = `Running: ${parameter}`;
+                break;
+              default:
+                parameter = JSON.stringify(input).slice(0, 80);
+                contextInfo = `${block.name}: ${parameter}`;
+            }
+
             log("info", "Tool use", {
               sessionId: session.id,
               tool: block.name,
+              context: contextInfo,
+              turn: turnCount,
             });
-            // Emit action activity for tool use (persistent, like Claude Code UI)
+
+            // Emit detailed action activity
             await emitActivity(session.id, {
               type: "action",
               action: block.name,
-              parameter: typeof block.input === "string"
-                ? block.input.slice(0, 100)
-                : JSON.stringify(block.input).slice(0, 100),
+              parameter: contextInfo,
             });
           }
         }
+      } else if (message.type === "user") {
+        // Handle tool results - emit result feedback
+        const toolResult = message.tool_use_result as { output?: string; error?: string } | undefined;
+        if (toolResult && lastToolUseId) {
+          const isError = !!toolResult.error;
+          const resultText = toolResult.error || toolResult.output || "";
+
+          // Emit a brief result summary
+          if (resultText) {
+            const preview = resultText.slice(0, 200).replace(/\n/g, " ");
+            const resultSummary = isError
+              ? `Error: ${preview}`
+              : preview.length > 150 ? `${preview.slice(0, 150)}...` : preview;
+
+            await emitActivity(session.id, {
+              type: "thought",
+              body: isError ? `❌ ${resultSummary}` : `✓ ${resultSummary}`,
+            }); // persistent - keeping all events for granular tracking
+          }
+          lastToolUseId = undefined;
+        }
       } else if (message.type === "result") {
+        // Emit completion summary with stats
+        const stats = {
+          turns: message.subtype === "success" ? (message as { num_turns?: number }).num_turns : turnCount,
+          cost: message.subtype === "success" ? (message as { total_cost_usd?: number }).total_cost_usd : undefined,
+          tools: toolsUsed,
+          files: filesAccessed.length,
+        };
+
         log("info", "Agent run completed", {
           sessionId: session.id,
           subtype: message.subtype,
-          turns: message.subtype === "success" ? message.num_turns : undefined,
+          ...stats,
         });
+
+        // Emit summary thought before final response
+        if (stats.turns && stats.turns > 1) {
+          const summaryParts = [];
+          summaryParts.push(`Completed in ${stats.turns} steps`);
+          if (stats.tools.length > 0) {
+            summaryParts.push(`used ${stats.tools.join(", ")}`);
+          }
+          if (stats.files > 0) {
+            summaryParts.push(`touched ${stats.files} file${stats.files > 1 ? "s" : ""}`);
+          }
+          if (stats.cost) {
+            summaryParts.push(`cost: $${stats.cost.toFixed(4)}`);
+          }
+
+          await emitActivity(session.id, {
+            type: "thought",
+            body: `📊 ${summaryParts.join(" | ")}`,
+          }); // persistent - keep as part of session history
+        }
       }
     }
 
