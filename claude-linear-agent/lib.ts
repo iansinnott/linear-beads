@@ -8,17 +8,24 @@ import { createHmac, timingSafeEqual } from "crypto";
 // Types for Linear webhook payloads
 // AIDEV-NOTE: These types are derived from actual webhook payloads (2026-01-03)
 // See /tmp/linear-webhook-payload.json for a real example
+// Agent activity content (nested inside AgentActivityData)
+export interface AgentActivityContent {
+  type: "prompt" | "thought" | "action" | "response" | "error" | "elicitation";
+  body?: string; // The user's message (for type="prompt")
+}
+
 // Agent activity from user (for prompted events)
-// AIDEV-NOTE: The user message is in content.body, not directly on agentActivity
+// AIDEV-NOTE: The user message is in content.body, NOT directly on agentActivity
+// This caused a bug where we looked for agentActivity.body instead of agentActivity.content.body
 export interface AgentActivityData {
   id: string;
   createdAt?: string;
+  updatedAt?: string;
   userId?: string;
-  signal?: string; // "stop" when user clicks stop button
-  content?: {
-    type: string; // "prompt" for user messages
-    body?: string; // The user's message
-  };
+  agentSessionId?: string;
+  signal?: "stop" | null; // "stop" when user clicks stop button
+  ephemeral?: boolean;
+  content: AgentActivityContent; // Required - always present in prompted events
 }
 
 export interface LinearWebhookPayload {

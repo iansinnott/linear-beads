@@ -228,11 +228,149 @@ function log(level: "info" | "warn" | "error", message: string, data?: Record<st
 // {"timestamp":"2026-01-03T21:41:26.528Z","level":"info","message":"Webhook received","sessionId":"..."}
 ```
 
+---
+
+## Further Investigation (2026-01-03 ~22:00 UTC)
+
+### Webhook Payload Analysis
+
+After rate limit recovered, we captured a real webhook payload to understand what data Linear provides:
+
+**Key finding: Linear provides both creator ID and agent ID in the payload, enabling self-trigger detection:**
+
+```json
+{
+  "appUserId": "125ac554-2838-4963-acbf-f1c42454fca3",  // Our agent's ID
+  "agentSession": {
+    "creatorId": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",  // Who triggered
+    "appUserId": "125ac554-2838-4963-acbf-f1c42454fca3",  // Our agent (redundant)
+    "creator": {
+      "id": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",
+      "name": "ian@iansinnott.com",
+      "email": "ian@iansinnott.com"
+      // Note: NO `app` field in webhook payload
+    },
+    "comment": {
+      "userId": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a"  // Comment author
+    }
+  }
+}
+```
+
+### Self-Trigger Detection
+
+Added `isSelfTrigger()` helper to `lib.ts`:
+
+```typescript
+export function isSelfTrigger(payload: LinearWebhookPayload): boolean {
+  const session = payload.agentSession;
+  if (!session) return false;
+
+  const creatorId = session.creatorId || session.creator?.id;
+  const ourAgentId = payload.appUserId || session.appUserId;
+
+  if (!creatorId || !ourAgentId) return false;
+  return creatorId === ourAgentId;
+}
+```
+
+**Usage in webhook handler:**
+```typescript
+if (isSelfTrigger(payload)) {
+  log("warn", "Self-trigger detected", { sessionId: session.id });
+  return c.json({ received: true, skipped: "self_trigger" });
+}
+```
+
+### TypeScript Types Updated
+
+Updated `lib.ts` types to match actual Linear webhook payload structure:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `payload.appUserId` | `string?` | Our agent's user ID |
+| `session.creatorId` | `string?` | Who triggered the session |
+| `session.appUserId` | `string?` | Our agent (redundant) |
+| `comment.userId` | `string?` | Comment author ID |
+| `creator.avatarUrl` | `string?` | Profile avatar |
+| `issue.team` | `object?` | Full team info |
+
+### Verified API Fields
+
+Queried Linear GraphQL API to confirm agent identity fields:
+
+```typescript
+// Query: { viewer { id name app supportsAgentSessions } }
+{
+  "id": "125ac554-2838-4963-acbf-f1c42454fca3",
+  "name": "Claude",
+  "app": true,  // Confirms we're an app/bot user
+  "supportsAgentSessions": true
+}
+```
+
+Note: The `app` field is available via API but NOT included in webhook payloads.
+
+---
+
+## Proposed Hard Mitigations
+
+For defense-in-depth, these additional mitigations are recommended:
+
+### 1. Concurrent Instance Limit
+
+Prevent runaway spawning by limiting concurrent agent runs:
+
+```typescript
+const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_AGENTS || '3');
+let activeCount = 0;
+
+// In webhook handler:
+if (activeCount >= MAX_CONCURRENT) {
+  log("warn", "Max concurrent agents reached", { active: activeCount });
+  return c.json({ received: true, skipped: "rate_limited" });
+}
+
+activeCount++;
+runAgent(session, payload.promptContext)
+  .finally(() => activeCount--);
+```
+
+### 2. Issue Cooldown
+
+Prevent rapid re-triggers on the same issue:
+
+```typescript
+const issueCooldowns = new Map<string, number>();
+const COOLDOWN_MS = 30_000; // 30 seconds
+
+const issueId = session.issue?.id;
+const lastResponse = issueCooldowns.get(issueId);
+if (lastResponse && Date.now() - lastResponse < COOLDOWN_MS) {
+  log("warn", "Issue cooldown active", { issueId });
+  return c.json({ received: true, skipped: "cooldown" });
+}
+
+// After successful response:
+issueCooldowns.set(issueId, Date.now());
+```
+
+### Defense Layers Summary
+
+| Layer | What it catches | Status |
+|-------|-----------------|--------|
+| Session deduplication | Same webhook delivered twice | ✅ Implemented |
+| @mention sanitization | Agent output containing `@claude` | ✅ Implemented |
+| Self-trigger detection | Session created by our own agent | ✅ Implemented (helper added) |
+| Concurrent limit | Runaway spawning (max N) | 🔲 Proposed |
+| Issue cooldown | Rapid triggers on same issue | 🔲 Proposed |
+
 ### Remaining Items
 
 1. [ ] Clean up test issues created by the loop (GENT-729 through GENT-769+)
-2. [ ] Add circuit breaker pattern (if needed after testing)
-3. [ ] Confirm Linear behavior re: agent self-mentions
+2. [ ] Add self-trigger check to webhook handler
+3. [ ] Implement concurrent limit (optional, for extra safety)
+4. [ ] Implement issue cooldown (optional, for extra safety)
 
 ## Related Issues
 
@@ -240,30 +378,137 @@ function log(level: "info" | "warn" | "error", message: string, data?: Record<st
 
 ## Appendix
 
-### Saved Webhook Payload (`/tmp/linear-webhook-payload.json`)
+### Real Webhook Payload (captured 2026-01-03 22:00 UTC)
 
 ```json
 {
   "type": "AgentSessionEvent",
   "action": "created",
-  "createdAt": "2026-01-03T21:12:08.922Z",
-  "organizationId": "org-123",
+  "createdAt": "2026-01-03T22:00:25.752Z",
+  "organizationId": "77df41e4-76cd-4310-9d25-b59481c02a74",
+  "oauthClientId": "4d60803071bd7b18e5663f2832fcfd6e",
+  "appUserId": "125ac554-2838-4963-acbf-f1c42454fca3",
   "agentSession": {
-    "id": "session-123",
-    "issueId": "issue-456",
+    "id": "c710e27a-7833-40d9-8cad-62f58cb35bf2",
+    "createdAt": "2026-01-03T22:00:25.181Z",
+    "updatedAt": "2026-01-03T22:00:25.181Z",
+    "archivedAt": null,
+    "creatorId": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",
+    "appUserId": "125ac554-2838-4963-acbf-f1c42454fca3",
+    "commentId": "566f68c1-1d17-46ec-9bde-b8eeeb22af55",
+    "sourceCommentId": null,
+    "issueId": "28b8ecd1-008e-4aa3-8f5c-6cc6f4de3a18",
     "status": "pending",
     "type": "commentThread",
-    "issue": {
-      "id": "issue-456",
-      "identifier": "TEST-1",
-      "title": "Test Issue",
-      "description": "This is a test"
+    "externalUrls": [],
+    "sourceMetadata": {
+      "type": "comment",
+      "agentSessionMetadata": {
+        "sourceCommentId": "566f68c1-1d17-46ec-9bde-b8eeeb22af55"
+      }
+    },
+    "creator": {
+      "id": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",
+      "name": "ian@iansinnott.com",
+      "email": "ian@iansinnott.com",
+      "avatarUrl": "https://public.linear.app/...",
+      "url": "https://linear.app/iansinnott/profiles/ian"
     },
     "comment": {
-      "id": "comment-789",
-      "body": "@claude help me"
+      "id": "566f68c1-1d17-46ec-9bde-b8eeeb22af55",
+      "body": "@claude ping. no detailed response needed, maybe just a pong",
+      "userId": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",
+      "issueId": "28b8ecd1-008e-4aa3-8f5c-6cc6f4de3a18"
+    },
+    "issue": {
+      "id": "28b8ecd1-008e-4aa3-8f5c-6cc6f4de3a18",
+      "title": "a test issue",
+      "teamId": "84b3f91a-133a-4b09-872d-8c0d430713a1",
+      "team": {
+        "id": "84b3f91a-133a-4b09-872d-8c0d430713a1",
+        "key": "GENT",
+        "name": "GENT"
+      },
+      "identifier": "GENT-774",
+      "url": "https://linear.app/iansinnott/issue/GENT-774/a-test-issue",
+      "description": "generally ignore this issue for any purpose other than responding..."
     }
   },
-  "promptContext": "<issue>test</issue>"
+  "previousComments": [
+    {
+      "id": "566f68c1-1d17-46ec-9bde-b8eeeb22af55",
+      "body": "@claude ping. no detailed response needed, maybe just a pong",
+      "userId": "dc7f24a6-f24e-47dc-b865-e1b9e9afd69a",
+      "issueId": "28b8ecd1-008e-4aa3-8f5c-6cc6f4de3a18"
+    }
+  ],
+  "guidance": null,
+  "promptContext": "<issue identifier=\"GENT-774\">...",
+  "webhookTimestamp": 1767477625781,
+  "webhookId": "7ed324e1-06db-4432-9417-4de1dccb3603"
 }
 ```
+
+### Key Fields for Self-Trigger Detection
+
+- `payload.appUserId` = our agent's ID (`125ac554-...`)
+- `session.creatorId` = who triggered (`dc7f24a6-...`)
+- If `creatorId === appUserId`, it's a self-trigger
+
+---
+
+## Second Occurrence: Prompted Event Loop (2026-01-04)
+
+### Symptoms
+
+- User sent follow-up message in existing thread (prompted event)
+- System became unresponsive: "dropping frames, fans go crazy"
+- Activity Monitor showed "tons of bun rows" (many bun processes)
+- Required killing all terminals to stop
+
+### Technical Details
+
+A bug in `getPromptedMessage()` looked for message in wrong location:
+```typescript
+// BUG: looked here
+payload.agentActivity?.body  // undefined
+
+// CORRECT: should look here
+payload.agentActivity?.content?.body  // "thanks!"
+```
+
+This caused all prompted events to return 400 "No user message".
+
+### Mystery: Why Did 400 Cause Many Bun Processes?
+
+The 400 response was returned **before** calling `runAgent()`, so no Claude Agent SDK processes should have been spawned.
+
+**Possible explanations (unconfirmed):**
+1. **Linear webhook retries** - Rapid retries on 4xx errors flooding the server
+2. **Multiple server instances** - Port conflict causing crash-restart loops
+3. **Unrelated concurrent activity** - Previous agent run still executing
+
+### Fix Applied
+
+```typescript
+// lib.ts - AgentActivityData type now enforces correct structure
+export interface AgentActivityContent {
+  type: "prompt" | "thought" | "action" | "response" | "error" | "elicitation";
+  body?: string;
+}
+
+export interface AgentActivityData {
+  id: string;
+  signal?: "stop" | null;
+  content: AgentActivityContent;  // Required, not optional
+}
+```
+
+TypeScript will now catch if someone tries to access `agentActivity.body` directly.
+
+### Lesson Learned
+
+When adding new webhook event types, always:
+1. Capture a real payload first (`/tmp/linear-webhook-*.json`)
+2. Update types to match actual structure
+3. Run `tsc` to verify type safety

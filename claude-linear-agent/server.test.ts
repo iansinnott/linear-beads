@@ -220,7 +220,7 @@ describe("getPromptedMessage", () => {
     expect(getPromptedMessage(payload)).toBeNull();
   });
 
-  test("returns null when agentActivity has no content", () => {
+  test("returns null when agentActivity content has no body", () => {
     const payload: LinearWebhookPayload = {
       type: "AgentSessionEvent",
       action: "prompted",
@@ -228,6 +228,10 @@ describe("getPromptedMessage", () => {
       organizationId: "org-123",
       agentActivity: {
         id: "activity-123",
+        content: {
+          type: "prompt",
+          // body is undefined
+        },
       },
     };
     expect(getPromptedMessage(payload)).toBeNull();
