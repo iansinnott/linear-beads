@@ -29,7 +29,7 @@ const app = new Hono();
 // Environment
 const WEBHOOK_SECRET = process.env.LINEAR_WEBHOOK_SECRET!;
 const ACCESS_TOKEN = process.env.LINEAR_ACCESS_TOKEN!;
-const REPO_PATH = process.env.REPO_PATH || "/Users/ian/dev/linear-beads";
+const REPO_PATH = process.env.REPO_PATH || "/Users/ian/dev/limbic";
 
 // Session deduplication to prevent infinite loops
 // Tracks session IDs that have been processed (with timestamps for cleanup)

@@ -1,4 +1,4 @@
-# linear-beads (lb)
+# limbic (lb)
 
 Linear-backed issue tracking for AI agents. Inspired by [beads](https://github.com/steveyegge/beads).
 
@@ -28,12 +28,12 @@ That's it. The agent will walk you through setup (install, auth, etc.) and confi
 
 ## Install
 
-**Download a binary** from [releases](https://github.com/nikvdp/linear-beads/releases) and add it to your PATH.
+**Download a binary** from [releases](https://github.com/iansinnott/limbic/releases) and add it to your PATH.
 
 **Or with bun:**
 
 ```bash
-bun install -g github:nikvdp/linear-beads
+bun install -g github:iansinnott/limbic
 ```
 
 ## Quick Setup (from source)
@@ -43,8 +43,8 @@ bun install -g github:nikvdp/linear-beads
 curl -fsSL https://bun.sh/install | bash
 
 # Clone and install
-git clone git@github.com:iansinnott/linear-beads.git
-cd linear-beads
+git clone git@github.com:iansinnott/limbic.git
+cd limbic
 bun install
 
 # Add alias to shell config (~/.zshrc or ~/.bashrc)
