@@ -4,6 +4,20 @@ Linear-backed issue tracking for AI agents. Inspired by [beads](https://github.c
 
 `lb` gives you beads-style issue tracking with Linear as the backend. Your issues live in Linear where you can see them, but agents interact through a fast CLI with JSON output, background sync, and dependency tracking. Backward-compatible interop (import/export) with [beads](https://github.com/steveyegge/beads) issues.jsonl.
 
+## Thinking
+
+- Linear is a great human-centric UI.
+- Linear also has a great API.
+- If you sort of squint, you can think of Linear entities (projects, issues, updates, comments, etc) as markdown files with structured frontmatter.
+- `lb` is a command line tool, and CLIs are great interfaces for AIs
+- Linear is an excellent _communication surface_ for humans interfacing with AI agents about specific tasks.
+   - Human uses Linear GUI
+   - Agent uses `lb` (or Linear API directly) if/when `lb` is lacking in some way.
+
+The big realization (kudos Steve Yegge) was that task managers are super useful for AIs as well as humans.
+
+My realization, on top of this, is that Linear (or something like it) is a perfect surface for communication. AI uses CLI, human sues GUI. Amazing!
+
 ## Quickstart
 
 Tell your agent:
