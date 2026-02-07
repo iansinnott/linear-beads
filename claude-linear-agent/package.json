@@ -7,7 +7,9 @@
   "scripts": {
     "agent": "bun run index.ts",
     "server": "bun run server.ts",
-    "test": "bun test"
+    "dev": "bun run scripts/dev.ts",
+    "test": "bun test",
+    "oauth": "bun run scripts/oauth-token-exchange.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

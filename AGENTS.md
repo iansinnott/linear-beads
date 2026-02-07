@@ -5,15 +5,26 @@
 When asked to "run the server" or start the Linear agent, use:
 
 ```bash
-bun run agent:dev
+cd claude-linear-agent
+bun run dev
 ```
 
-This starts `claude-linear-agent/server.ts` with `--watch` and tees output to `tmp/server.log`. Logs persist there so you can grep over them later:
+This starts both the agent server and ngrok tunnel with combined, prefixed output. Logs are written to `claude-linear-agent/tmp/dev.log` by default.
+
+**Log file location:** `claude-linear-agent/tmp/dev.log`
 
 ```bash
-grep "error" tmp/server.log
-tail -100 tmp/server.log
+# Read recent logs
+tail -100 claude-linear-agent/tmp/dev.log
+
+# Search for errors
+grep "error" claude-linear-agent/tmp/dev.log
+
+# Follow logs in real-time
+tail -f claude-linear-agent/tmp/dev.log
 ```
+
+Use `--no-log` to disable file logging: `bun run dev --no-log`
 
 ---
 

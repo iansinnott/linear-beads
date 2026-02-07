@@ -45,6 +45,14 @@ cd /your/project
 lb init && lb sync
 ```
 
+**Multiple Linear teams?** If you have more than one team, create `.lb/config.jsonc` before running `lb init`:
+
+```jsonc
+{
+  "team_key": "YOUR_TEAM_KEY"  // e.g., "ENG", "PROD"
+}
+```
+
 All state lives in Linear—switching machines just requires re-running these steps. `lb sync` pulls everything down.
 
 ## What happens behind the scenes
@@ -97,13 +105,34 @@ In local-only mode:
 
 The `claude-linear-agent/` directory contains a webhook server that responds to `@Claude` mentions in Linear issues using the Claude Agent SDK.
 
+### Setup
+
+1. Set up your Linear OAuth app credentials in `.env`:
+   ```bash
+   LINEAR_CLIENT_ID=...
+   LINEAR_CLIENT_SECRET=...
+   LINEAR_WEBHOOK_SECRET=...
+   ```
+
+2. Get an app actor token:
+   ```bash
+   cd claude-linear-agent
+   bun run oauth
+   ```
+
+3. Add the token to `.env`:
+   ```bash
+   LINEAR_ACCESS_TOKEN=lin_oauth_...
+   ```
+
 ### Running the Agent
 
 ```bash
-bun run agent:dev
+cd claude-linear-agent
+bun run dev
 ```
 
-This starts the server with hot reload and logs to `tmp/server.log` for debugging.
+This starts both the server and ngrok tunnel with combined, prefixed output. Logs are written to `tmp/dev.log`. The ngrok web UI is available at http://localhost:4040/inspect/http.
 
 ### Customizing Agent Behavior
 
@@ -113,7 +142,7 @@ Edit `claude-linear-agent/agent-prompt.ts` to customize how the agent behaves. T
 - **`buildAgentPrompt()`** - builds the full prompt from context
 - **`getSystemInstructions()`** - the agent's core personality and guidelines
 
-See `claude-linear-agent/CLAUDE.md` for full dev setup including ngrok tunneling.
+See `docs/linear/oauth-setup.md` for full OAuth setup details.
 
 ## License
 

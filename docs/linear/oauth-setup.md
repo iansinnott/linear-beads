@@ -29,9 +29,82 @@ Guide for creating and configuring a Linear OAuth app for @-mentionable agents.
    - `CLIENT_SECRET`
    - `WEBHOOK_SECRET`
 
-## Step 2: OAuth Token Exchange
+## Step 2: Get App Actor Token
 
-After the app is created, you need to exchange an authorization code for access tokens.
+The agent needs an **app actor token** (not a user token) so actions are attributed to "Claude" rather than you.
+
+### Quick Method (Recommended)
+
+Set your credentials in env, then run:
+
+```bash
+export LINEAR_CLIENT_ID=your_client_id
+export LINEAR_CLIENT_SECRET=your_client_secret
+cd claude-linear-agent
+bun run oauth
+```
+
+The script uses `client_credentials` grant to get an app actor token directly - no browser needed.
+
+### Manual Method
+
+<details>
+<summary>Click to expand manual steps</summary>
+
+```bash
+curl -X POST https://api.linear.app/oauth/token \
+  -u "CLIENT_ID:CLIENT_SECRET" \
+  -d "grant_type=client_credentials&scope=read,write"
+```
+
+</details>
+
+### Save Tokens
+
+Add to your `.env` file:
+
+```bash
+LINEAR_CLIENT_ID=your_client_id
+LINEAR_CLIENT_SECRET=your_client_secret
+LINEAR_WEBHOOK_SECRET=lin_wh_...
+LINEAR_ACCESS_TOKEN=lin_oauth_...
+```
+
+**Note:** App actor tokens expire after 30 days. Run `bun run oauth` again to refresh.
+
+## Step 3: Verify Setup
+
+1. Check the token works (should show "Claude" as the viewer):
+   ```bash
+   curl -s https://api.linear.app/graphql \
+     -H "Authorization: Bearer $LINEAR_ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "{ viewer { id name } }"}' | jq
+   ```
+
+2. Start the dev server (runs both server + ngrok):
+   ```bash
+   cd claude-linear-agent
+   bun run dev
+   ```
+
+3. Mention @Claude in a Linear issue and verify the webhook is received.
+
+## Token Refresh
+
+App actor tokens expire after 30 days. Simply run `bun run oauth` again to get a new token.
+
+## Legacy: Authorization Code Flow
+
+<details>
+<summary>Click to expand (you probably don't need this)</summary>
+
+**Note:** This flow is NOT needed for the agent use case. The agent needs an **app actor token** (via `client_credentials`) so actions are attributed to the app (Claude), not a user. The authorization code flow creates a **user token** that acts on behalf of whoever authorized it.
+
+You might need this in the future if:
+- Building a public app where many users authorize it
+- Need to act on behalf of specific users with their permissions
+- Building integrations that require user context
 
 ### Get Authorization Code
 
@@ -45,8 +118,6 @@ After the app is created, you need to exchange an authorization code for access 
 4. Copy the `code` parameter (it expires quickly!)
 
 ### Exchange Code for Tokens
-
-Use Bun/Node to exchange the code:
 
 ```typescript
 const response = await fetch("https://api.linear.app/oauth/token", {
@@ -66,38 +137,9 @@ console.log(tokens);
 // { access_token: "lin_oauth_...", refresh_token: "lin_refresh_...", ... }
 ```
 
-### Save Tokens
+### Refresh User Tokens
 
-Add to your `.env` file:
-
-```bash
-LINEAR_CLIENT_ID=your_client_id
-LINEAR_CLIENT_SECRET=your_client_secret
-LINEAR_WEBHOOK_SECRET=lin_wh_...
-LINEAR_ACCESS_TOKEN=lin_oauth_...
-LINEAR_REFRESH_TOKEN=lin_refresh_...
-```
-
-## Step 3: Verify Setup
-
-1. Check the @Claude user exists:
-   ```bash
-   curl -s https://api.linear.app/graphql \
-     -H "Authorization: Bearer $LINEAR_ACCESS_TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"query": "{ viewer { id name email } }"}' | jq
-   ```
-
-2. Start your webhook server:
-   ```bash
-   bun --watch run server.ts
-   ```
-
-3. Mention @Claude in a Linear issue and verify the webhook is received.
-
-## Token Refresh
-
-Access tokens expire. Use the refresh token to get new ones:
+User tokens come with a refresh token. Use it to get new access tokens:
 
 ```typescript
 const response = await fetch("https://api.linear.app/oauth/token", {
@@ -110,10 +152,9 @@ const response = await fetch("https://api.linear.app/oauth/token", {
     refresh_token: "YOUR_REFRESH_TOKEN",
   }),
 });
-
-const tokens = await response.json();
-// Update your .env with new access_token
 ```
+
+</details>
 
 ## Important Notes
 
