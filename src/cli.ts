@@ -25,6 +25,8 @@ import { onboardCommand } from "./commands/onboard.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { exportCommand } from "./commands/export.js";
 import { projectCommand } from "./commands/project.js";
+import { attachCommand } from "./commands/attach.js";
+import { branchCommand } from "./commands/branch.js";
 import { verifyConnection } from "./utils/linear.js";
 import { closeDatabase } from "./utils/database.js";
 import { exportToJsonl } from "./utils/jsonl.js";
@@ -91,6 +93,8 @@ if (process.argv.includes("--worker")) {
   program.addCommand(commentCommand);
   program.addCommand(deleteCommand);
   program.addCommand(depCommand);
+  program.addCommand(attachCommand);
+  program.addCommand(branchCommand);
 
   // Project management
   program.addCommand(projectCommand);

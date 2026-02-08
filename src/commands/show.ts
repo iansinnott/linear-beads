@@ -5,7 +5,7 @@
 import { Command } from "commander";
 import { ensureFresh } from "../utils/sync.js";
 import { getCachedIssue, getDependencies, getInverseDependencies } from "../utils/database.js";
-import { fetchIssue } from "../utils/linear.js";
+import { fetchIssue, getIssueAttachments } from "../utils/linear.js";
 import { formatShowJson, formatIssueHuman, output, outputError } from "../utils/output.js";
 import { isLocalOnly } from "../utils/config.js";
 
@@ -134,6 +134,19 @@ export const showCommand = new Command("show")
           for (const relId of related) {
             const rel = getCachedIssue(relId);
             output(`  ↔ ${relId}${rel ? `: ${rel.title} [P${rel.priority}]` : ""}`);
+          }
+        }
+
+        // Show attachments (fetched live from Linear)
+        if (!localOnly) {
+          const attachments = await getIssueAttachments(id);
+          if (attachments.length > 0) {
+            output("");
+            output(`Attachments (${attachments.length}):`);
+            for (const att of attachments) {
+              const subtitle = att.subtitle ? ` (${att.subtitle})` : "";
+              output(`  🔗 ${att.title}${subtitle}: ${att.url}`);
+            }
           }
         }
       }

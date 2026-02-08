@@ -245,6 +245,54 @@ export function createActivityMutation(
   };
 }
 
+/**
+ * Create GraphQL mutation for adding a link attachment to an issue.
+ * Idempotent on URL+issueId — calling again with the same URL updates the existing attachment.
+ */
+export function createAttachmentMutation(
+  issueId: string,
+  url: string,
+  title: string,
+  subtitle?: string
+) {
+  return {
+    query: `
+      mutation AttachmentCreate($input: AttachmentCreateInput!) {
+        attachmentCreate(input: $input) {
+          success
+          attachment { id url title }
+        }
+      }
+    `,
+    variables: {
+      input: { issueId, url, title, ...(subtitle && { subtitle }) },
+    },
+  };
+}
+
+/**
+ * Create GraphQL mutation for adding a resource link to a project.
+ */
+export function createProjectLinkMutation(
+  projectId: string,
+  url: string,
+  label: string
+) {
+  return {
+    query: `
+      mutation ProjectLinkCreate($input: ProjectLinkCreateInput!) {
+        projectLinkCreate(input: $input) {
+          success
+          projectLink { id url label }
+        }
+      }
+    `,
+    variables: {
+      input: { projectId, url, label },
+    },
+  };
+}
+
 // AIDEV-NOTE: Marker used by agent to signal it needs user clarification
 // When present, we emit "elicitation" instead of "response", keeping session in awaitingInput state
 export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";

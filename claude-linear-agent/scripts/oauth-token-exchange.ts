@@ -9,8 +9,13 @@
  */
 
 import * as readline from "readline";
+import * as fs from "fs";
+import * as path from "path";
 
 const OAUTH_APP_URL = "https://linear.app/iansinnott/settings/api/applications/4be21ae3-87f0-43a1-833f-114b7cc2c646";
+// Write to root .env (where client credentials live), not claude-linear-agent/.env.
+// Bun loads .env from cwd + parent dirs, and root takes precedence.
+const ENV_PATH = path.join(import.meta.dir, "..", "..", ".env");
 
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -70,7 +75,7 @@ async function main() {
       },
       body: new URLSearchParams({
         grant_type: "client_credentials",
-        scope: "read,write",
+        scope: "read,write,app:assignable,app:mentionable",
       }),
     });
 
@@ -119,15 +124,39 @@ async function main() {
       console.log("⚠️  Could not verify token (but it may still work)");
     }
 
-    // Output env vars
-    console.log("\n" + "=".repeat(60));
-    console.log("\nAdd this to your .env file:\n");
-    console.log(`LINEAR_ACCESS_TOKEN=${tokens.access_token}`);
-    if (tokens.expires_in) {
-      const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
-      console.log(`\n# Token expires: ${expiresAt.toISOString()} (${tokens.expires_in / 86400} days)`);
+    // Write token to .env file
+    let envContent = "";
+    if (fs.existsSync(ENV_PATH)) {
+      envContent = fs.readFileSync(ENV_PATH, "utf-8");
     }
-    console.log("\n" + "=".repeat(60));
+
+    const tokenLine = `LINEAR_ACCESS_TOKEN=${tokens.access_token}`;
+    const expiryComment = tokens.expires_in
+      ? `# Token expires: ${new Date(Date.now() + tokens.expires_in * 1000).toISOString()}`
+      : "";
+
+    if (envContent.includes("LINEAR_ACCESS_TOKEN=")) {
+      // Replace existing token
+      envContent = envContent.replace(
+        /^(# Token expires:.*\n)?LINEAR_ACCESS_TOKEN=.*/m,
+        (expiryComment ? expiryComment + "\n" : "") + tokenLine
+      );
+    } else {
+      // Append token
+      const newLines = [
+        ...(envContent.length > 0 && !envContent.endsWith("\n") ? ["\n"] : []),
+        ...(expiryComment ? [expiryComment] : []),
+        tokenLine,
+        "",
+      ];
+      envContent += newLines.join("\n");
+    }
+
+    fs.writeFileSync(ENV_PATH, envContent);
+    console.log(`\n✅ Wrote LINEAR_ACCESS_TOKEN to ${ENV_PATH}`);
+    if (tokens.expires_in) {
+      console.log(`   Expires: ${new Date(Date.now() + tokens.expires_in * 1000).toISOString()} (${tokens.expires_in / 86400} days)`);
+    }
 
     console.log("\n🎉 Setup complete!\n");
   } catch (error) {

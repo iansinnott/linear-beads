@@ -9,7 +9,9 @@
     "server": "bun run server.ts",
     "dev": "bun run scripts/dev.ts",
     "test": "bun test",
-    "oauth": "bun run scripts/oauth-token-exchange.ts"
+    "oauth": "bun run scripts/oauth-token-exchange.ts",
+    "check-token": "bun run scripts/check-token.ts",
+    "test-query": "bun run scripts/test-query.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

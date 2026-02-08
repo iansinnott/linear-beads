@@ -1219,6 +1219,119 @@ export async function getProjectWithLinks(nameOrId: string): Promise<ProjectDeta
 }
 
 /**
+ * Get the Linear-generated branch name for an issue
+ */
+export async function getIssueBranchName(issueId: string): Promise<string | null> {
+  const client = getGraphQLClient();
+
+  const query = `
+    query GetIssueBranchName($id: String!) {
+      issue(id: $id) {
+        branchName
+      }
+    }
+  `;
+
+  try {
+    const result = await client.request<{
+      issue: { branchName: string } | null;
+    }>(query, { id: issueId });
+
+    return result.issue?.branchName || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Issue attachment (external link on an issue)
+ */
+export interface IssueAttachment {
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+}
+
+/**
+ * Fetch attachments for an issue
+ */
+export async function getIssueAttachments(issueId: string): Promise<IssueAttachment[]> {
+  const client = getGraphQLClient();
+
+  const query = `
+    query GetIssueAttachments($id: String!) {
+      issue(id: $id) {
+        attachments {
+          nodes {
+            id
+            title
+            subtitle
+            url
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const result = await client.request<{
+      issue: { attachments: { nodes: IssueAttachment[] } } | null;
+    }>(query, { id: issueId });
+
+    return result.issue?.attachments.nodes || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Add a link attachment to an issue.
+ * Idempotent on URL+issueId — calling again with the same URL updates the existing attachment.
+ */
+export async function addAttachment(
+  issueId: string,
+  url: string,
+  title: string,
+  subtitle?: string
+): Promise<IssueAttachment> {
+  const client = getGraphQLClient();
+
+  // Resolve identifier to UUID if needed
+  const issueUuid = (await resolveIssueId(issueId)) || issueId;
+
+  const mutation = `
+    mutation AttachmentCreate($input: AttachmentCreateInput!) {
+      attachmentCreate(input: $input) {
+        success
+        attachment {
+          id
+          title
+          subtitle
+          url
+        }
+      }
+    }
+  `;
+
+  const input: Record<string, unknown> = { issueId: issueUuid, url, title };
+  if (subtitle) input.subtitle = subtitle;
+
+  const result = await client.request<{
+    attachmentCreate: {
+      success: boolean;
+      attachment: IssueAttachment;
+    };
+  }>(mutation, { input });
+
+  if (!result.attachmentCreate.success) {
+    throw new Error("Failed to create attachment");
+  }
+
+  return result.attachmentCreate.attachment;
+}
+
+/**
  * Get GitHub repo URL from project external links
  */
 export function getGitHubRepoFromLinks(links: ProjectExternalLink[]): string | null {

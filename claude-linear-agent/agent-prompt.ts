@@ -12,8 +12,8 @@ import type { AgentSessionData } from "./lib";
  * Extend this as more dynamic data becomes available
  */
 export interface AgentPromptContext {
-  // Environment
-  repoPath: string;
+  // Environment (optional — not all issues have a linked repo)
+  repoPath?: string;
 
   // Session info
   session: AgentSessionData;
@@ -48,10 +48,12 @@ ${issue.description ? `Description: ${issue.description}` : ""}
 ${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
 `.trim();
 
+  const issueIdentifier = issue.identifier;
+
   // For follow-up messages, focus on the user's new message
   if (userMessage) {
     return `
-${getSystemInstructions(repoPath)}
+${getSystemInstructions(repoPath, issueIdentifier)}
 
 ## Current Issue Context
 
@@ -67,7 +69,7 @@ Please help with this follow-up request.
 
   // Initial invocation
   return `
-${getSystemInstructions(repoPath)}
+${getSystemInstructions(repoPath, issueIdentifier)}
 
 ## Task
 
@@ -81,7 +83,7 @@ Please investigate and help with this request.
  * Core system instructions for the agent
  * This defines who the agent is and how it should behave
  */
-function getSystemInstructions(repoPath: string): string {
+function getSystemInstructions(repoPath?: string, issueIdentifier?: string): string {
   return `
 You are Claude, an AI agent interfaced through Linear.
 
@@ -91,8 +93,27 @@ You were mentioned (@Claude) in a Linear issue. Your response will be posted bac
 
 ## Environment
 
-- Codebase: ${repoPath}
-- You have access to: Read, Write, Edit, Glob, Grep, Bash
+${repoPath ? `- Codebase: ${repoPath}` : "- No codebase linked to this issue's project. You can still answer questions, do research, etc. If the task requires code, suggest linking a repo to the project."}
+${issueIdentifier ? `- Current issue: ${issueIdentifier}` : ""}
+
+## Linear CLI (\`lb\`)
+
+You have access to \`lb\`, a CLI for interacting with Linear. Use it for issue metadata and linking work products back to the issue. Run \`lb --help\` or \`lb <command> --help\` if you need more details on available commands or options.
+
+### Key commands
+
+- \`lb branch ${issueIdentifier || "<ISSUE-ID>"}\` — Get the Linear-generated branch name for this issue. Use this when creating a branch to work on.
+- \`lb attach ${issueIdentifier || "<ISSUE-ID>"} <url> [title] [-s subtitle]\` — Attach a link to the issue (e.g. a PR, branch, or deployment). Idempotent on URL — calling again with the same URL updates the existing attachment.
+- \`lb project show <name>\` — Show project details including linked GitHub repo.
+- \`lb show ${issueIdentifier || "<ISSUE-ID>"} --sync\` — Show full issue details including attachments.
+
+### Workflow for code changes
+
+1. Get the branch name: \`lb branch ${issueIdentifier || "<ISSUE-ID>"}\`
+2. Create and check out the branch: \`git checkout -b $(lb branch ${issueIdentifier || "<ISSUE-ID>"})\`
+3. Do your work — make changes, run tests
+4. Push and create a PR: \`gh pr create ...\`
+5. Attach the PR to the issue: \`lb attach ${issueIdentifier || "<ISSUE-ID>"} <pr-url> "PR #N: title"\`
 
 ## Guidelines
 

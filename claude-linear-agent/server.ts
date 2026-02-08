@@ -5,6 +5,7 @@
  * runs Claude Code, and posts responses back to Linear.
  */
 
+import { existsSync } from "fs";
 import { Hono } from "hono";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -29,7 +30,10 @@ const app = new Hono();
 // Environment
 const WEBHOOK_SECRET = process.env.LINEAR_WEBHOOK_SECRET!;
 const ACCESS_TOKEN = process.env.LINEAR_ACCESS_TOKEN!;
-const REPO_PATH = process.env.REPO_PATH || "/Users/ian/dev/limbic";
+// TODO: REPO_PATH is currently a single static path. We want the agent to work on
+// arbitrary repos — the cwd should be derived from the project/issue context so Claude
+// can clone and work on whatever repo the issue is about.
+const REPO_PATH = process.env.REPO_PATH || new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 
 // Session deduplication to prevent infinite loops
 // Tracks session IDs that have been processed (with timestamps for cleanup)
@@ -93,6 +97,28 @@ function log(
   }
 }
 
+// Generic Linear GraphQL API request helper
+// New code should use this instead of duplicating fetch() calls
+async function linearApiRequest(
+  body: { query: string; variables: Record<string, unknown> }
+): Promise<{ data?: Record<string, unknown>; errors?: Array<{ message: string }> }> {
+  const response = await fetch("https://api.linear.app/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ACCESS_TOKEN}`,
+    },
+    signal: AbortSignal.timeout(10_000),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Linear API HTTP ${response.status}`);
+  }
+
+  return response.json() as Promise<{ data?: Record<string, unknown>; errors?: Array<{ message: string }> }>;
+}
+
 // Post a comment to Linear
 async function postComment(issueId: string, body: string): Promise<void> {
   const response = await fetch("https://api.linear.app/graphql", {
@@ -129,29 +155,50 @@ async function emitActivity(
   content: { type: string; body?: string; action?: string; parameter?: string; result?: string },
   ephemeral: boolean = false
 ): Promise<boolean> {
-  const response = await fetch("https://api.linear.app/graphql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${ACCESS_TOKEN}`,
-    },
-    body: JSON.stringify({
-      query: `
-        mutation AgentActivityCreate($input: AgentActivityCreateInput!) {
-          agentActivityCreate(input: $input) {
-            success
-          }
-        }
-      `,
-      variables: {
-        input: {
-          agentSessionId: sessionId,
-          content,
-          ephemeral,
-        },
+  let response: Response;
+  try {
+    response = await fetch("https://api.linear.app/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ACCESS_TOKEN}`,
       },
-    }),
-  });
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({
+        query: `
+          mutation AgentActivityCreate($input: AgentActivityCreateInput!) {
+            agentActivityCreate(input: $input) {
+              success
+            }
+          }
+        `,
+        variables: {
+          input: {
+            agentSessionId: sessionId,
+            content,
+            ephemeral,
+          },
+        },
+      }),
+    });
+  } catch (err) {
+    log("error", "Failed to emit activity", {
+      sessionId,
+      contentType: content.type,
+      errorType: "network",
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+
+  if (!response.ok) {
+    log("error", "Failed to emit activity", {
+      sessionId,
+      contentType: content.type,
+      httpStatus: response.status,
+    });
+    return false;
+  }
 
   const result = (await response.json()) as {
     data?: { agentActivityCreate?: { success: boolean } };
@@ -181,6 +228,7 @@ async function runAgent(
   userMessage?: string,
   abortController?: AbortController
 ): Promise<void> {
+  const startTime = Date.now();
   const issue = session.issue;
   if (!issue) {
     log("error", "No issue data in session", { sessionId: session.id });
@@ -200,6 +248,7 @@ async function runAgent(
     issueIdentifier: issue.identifier,
     promptLength: prompt.length,
     isFollowUp: !!userMessage,
+    cwd: REPO_PATH,
   });
 
   // CRITICAL: Emit activity immediately to avoid "unresponsive" status (must be within 10s)
@@ -348,6 +397,7 @@ async function runAgent(
         log("info", "Agent run completed", {
           sessionId: session.id,
           subtype: message.subtype,
+          durationMs: Date.now() - startTime,
           ...stats,
         });
 
@@ -427,6 +477,7 @@ async function runAgent(
     log("error", "Agent failed with error", {
       sessionId: session.id,
       issueId: issue.id,
+      durationMs: Date.now() - startTime,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -446,7 +497,16 @@ app.post("/webhook", async (c) => {
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  const payload = parseWebhookPayload(body);
+  let payload: LinearWebhookPayload;
+  try {
+    payload = parseWebhookPayload(body);
+  } catch (err) {
+    log("error", "Failed to parse webhook payload", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return c.json({ error: "Invalid payload" }, 400);
+  }
+
   log("info", "Webhook received", {
     type: payload.type,
     action: payload.action,
@@ -615,12 +675,20 @@ app.post("/webhook", async (c) => {
   return c.json({ received: true });
 });
 
+// Validate config
+if (!existsSync(REPO_PATH)) {
+  log("error", "REPO_PATH does not exist — agent will not be able to run", { repoPath: REPO_PATH });
+  process.exit(1);
+}
+
 // Start server
 const port = parseInt(process.env.PORT || "3000");
 log("info", "Claude agent server starting", {
   port,
   repoPath: REPO_PATH,
   nodeEnv: process.env.NODE_ENV || "development",
+  hasWebhookSecret: !!WEBHOOK_SECRET,
+  hasAccessToken: !!ACCESS_TOKEN,
 });
 
 export default {
