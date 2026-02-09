@@ -15,6 +15,9 @@ export interface AgentPromptContext {
   // Environment (optional — not all issues have a linked repo)
   repoPath?: string;
 
+  // When a repo is linked but not yet cloned to disk
+  cloneInfo?: { gitUrl: string; clonePath: string };
+
   // Session info
   session: AgentSessionData;
 
@@ -32,7 +35,7 @@ export interface AgentPromptContext {
  * its role and how it should behave when invoked through Linear.
  */
 export function buildAgentPrompt(ctx: AgentPromptContext): string {
-  const { session, repoPath, promptContext, userMessage } = ctx;
+  const { session, repoPath, cloneInfo, promptContext, userMessage } = ctx;
   const issue = session.issue;
 
   if (!issue) {
@@ -53,7 +56,7 @@ ${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
   // For follow-up messages, focus on the user's new message
   if (userMessage) {
     return `
-${getSystemInstructions(repoPath, issueIdentifier)}
+${getSystemInstructions(repoPath, issueIdentifier, cloneInfo)}
 
 ## Current Issue Context
 
@@ -69,7 +72,7 @@ Please help with this follow-up request.
 
   // Initial invocation
   return `
-${getSystemInstructions(repoPath, issueIdentifier)}
+${getSystemInstructions(repoPath, issueIdentifier, cloneInfo)}
 
 ## Task
 
@@ -83,7 +86,22 @@ Please investigate and help with this request.
  * Core system instructions for the agent
  * This defines who the agent is and how it should behave
  */
-function getSystemInstructions(repoPath?: string, issueIdentifier?: string): string {
+function getSystemInstructions(
+  repoPath?: string,
+  issueIdentifier?: string,
+  cloneInfo?: { gitUrl: string; clonePath: string }
+): string {
+  let envSection: string;
+  if (repoPath) {
+    envSection = `- Codebase: ${repoPath}`;
+  } else if (cloneInfo) {
+    envSection = `- Repo: ${cloneInfo.gitUrl} (not yet cloned)
+- To clone: \`git clone ${cloneInfo.gitUrl} ${cloneInfo.clonePath}\`
+- After cloning, work in \`${cloneInfo.clonePath}\``;
+  } else {
+    envSection = `- No codebase linked to this issue's project. You can still answer questions, do research, etc. If the task requires code, suggest linking a repo to the project.`;
+  }
+
   return `
 You are Claude, an AI agent interfaced through Linear.
 
@@ -93,7 +111,7 @@ You were mentioned (@Claude) in a Linear issue. Your response will be posted bac
 
 ## Environment
 
-${repoPath ? `- Codebase: ${repoPath}` : "- No codebase linked to this issue's project. You can still answer questions, do research, etc. If the task requires code, suggest linking a repo to the project."}
+${envSection}
 ${issueIdentifier ? `- Current issue: ${issueIdentifier}` : ""}
 
 ## Linear CLI (\`lb\`)

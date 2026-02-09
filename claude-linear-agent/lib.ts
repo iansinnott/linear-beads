@@ -293,6 +293,68 @@ export function createProjectLinkMutation(
   };
 }
 
+// --- Repo Resolution ---
+
+export interface GitHubRepo {
+  org: string;
+  repo: string;
+}
+
+/**
+ * Create GraphQL query to fetch an issue's project and its external links.
+ * Used to resolve which repo an issue belongs to.
+ */
+export function createIssueProjectQuery(issueId: string) {
+  return {
+    query: `
+      query GetIssueProject($issueId: String!) {
+        issue(id: $issueId) {
+          project {
+            id
+            name
+            externalLinks {
+              nodes {
+                url
+                label
+              }
+            }
+          }
+        }
+      }
+    `,
+    variables: { issueId },
+  };
+}
+
+/**
+ * Parse a GitHub URL into org/repo components.
+ * Handles HTTPS, SSH, .git suffix, and trailing paths.
+ */
+export function parseGitHubUrl(url: string): GitHubRepo | null {
+  try {
+    // Handle SSH URLs: git@github.com:org/repo.git
+    const sshMatch = url.match(/git@github\.com:([^/]+)\/([^/.]+)/);
+    if (sshMatch) return { org: sshMatch[1], repo: sshMatch[2] };
+
+    // Handle HTTPS URLs
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes("github.com")) return null;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length < 2) return null;
+    return { org: parts[0], repo: parts[1].replace(/\.git$/, "") };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the first GitHub URL from a list of external links.
+ */
+export function findGitHubLink(links: Array<{ url: string }>): string | null {
+  const match = links.find((l) => l.url.includes("github.com"));
+  return match?.url || null;
+}
+
 // AIDEV-NOTE: Marker used by agent to signal it needs user clarification
 // When present, we emit "elicitation" instead of "response", keeping session in awaitingInput state
 export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";

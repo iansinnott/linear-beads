@@ -5,7 +5,9 @@
  * runs Claude Code, and posts responses back to Linear.
  */
 
-import { existsSync } from "fs";
+import { existsSync, mkdirSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 import { Hono } from "hono";
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -19,6 +21,9 @@ import {
   createCommentMutation,
   createActivityMutation,
   parseForClarification,
+  createIssueProjectQuery,
+  parseGitHubUrl,
+  findGitHubLink,
   type LinearWebhookPayload,
   type AgentSessionData,
   type ActivityContent,
@@ -30,10 +35,8 @@ const app = new Hono();
 // Environment
 const WEBHOOK_SECRET = process.env.LINEAR_WEBHOOK_SECRET!;
 const ACCESS_TOKEN = process.env.LINEAR_ACCESS_TOKEN!;
-// TODO: REPO_PATH is currently a single static path. We want the agent to work on
-// arbitrary repos — the cwd should be derived from the project/issue context so Claude
-// can clone and work on whatever repo the issue is about.
-const REPO_PATH = process.env.REPO_PATH || new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+const REPOS_BASE = process.env.REPOS_BASE || join(homedir(), "repos");
+const SCRATCH_DIR = join(REPOS_BASE, "_scratch");
 
 // Session deduplication to prevent infinite loops
 // Tracks session IDs that have been processed (with timestamps for cleanup)
@@ -117,6 +120,75 @@ async function linearApiRequest(
   }
 
   return response.json() as Promise<{ data?: Record<string, unknown>; errors?: Array<{ message: string }> }>;
+}
+
+/**
+ * Resolve the working directory for an agent run based on the issue's project.
+ *
+ * Resolution chain:
+ *   issue → project → externalLinks → GitHub URL → REPOS_BASE/{org}/{repo}
+ *
+ * Falls back to SCRATCH_DIR when no repo is linked or not on disk.
+ */
+async function resolveRepoCwd(issueId: string): Promise<{
+  cwd: string;
+  repoPath: string | undefined;
+  // When a repo is linked but not yet on disk, provide clone info so the agent can clone it
+  cloneInfo?: { gitUrl: string; clonePath: string };
+}> {
+  try {
+    const result = await linearApiRequest(createIssueProjectQuery(issueId));
+    const issue = (result.data as Record<string, unknown>)?.issue as Record<string, unknown> | undefined;
+    const project = issue?.project as Record<string, unknown> | undefined;
+
+    if (project) {
+      const nodes = ((project.externalLinks as Record<string, unknown>)?.nodes || []) as Array<{ url: string }>;
+      const githubUrl = findGitHubLink(nodes);
+
+      if (githubUrl) {
+        const parsed = parseGitHubUrl(githubUrl);
+        if (parsed) {
+          const repoDir = join(REPOS_BASE, parsed.org, parsed.repo);
+          if (existsSync(repoDir)) {
+            log("info", "Resolved repo from project link", {
+              issueId,
+              project: project.name,
+              repo: `${parsed.org}/${parsed.repo}`,
+              repoDir,
+            });
+            return { cwd: repoDir, repoPath: repoDir };
+          }
+          // Repo linked but not on disk — fall to scratch but provide clone info
+          log("info", "Repo linked but not on disk", {
+            issueId,
+            project: project.name,
+            repo: `${parsed.org}/${parsed.repo}`,
+            expectedDir: repoDir,
+          });
+          if (!existsSync(SCRATCH_DIR)) {
+            mkdirSync(SCRATCH_DIR, { recursive: true });
+          }
+          return {
+            cwd: SCRATCH_DIR,
+            repoPath: undefined,
+            cloneInfo: { gitUrl: githubUrl, clonePath: repoDir },
+          };
+        }
+      }
+    }
+  } catch (err) {
+    log("warn", "Failed to resolve repo from project", {
+      issueId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Fallback: scratch directory (no repo linked at all)
+  if (!existsSync(SCRATCH_DIR)) {
+    mkdirSync(SCRATCH_DIR, { recursive: true });
+  }
+  log("info", "Using scratch directory", { issueId, scratchDir: SCRATCH_DIR });
+  return { cwd: SCRATCH_DIR, repoPath: undefined };
 }
 
 // Post a comment to Linear
@@ -235,9 +307,22 @@ async function runAgent(
     return;
   }
 
+  // CRITICAL: Emit activity immediately to avoid "unresponsive" status (must be within 10s)
+  const activityMessage = userMessage
+    ? `Processing follow-up message...`
+    : `Analyzing issue ${issue.identifier}...`;
+  await emitActivity(session.id, {
+    type: "thought",
+    body: activityMessage,
+  }); // persistent - keeping all events for granular tracking
+
+  // Resolve working directory from project context
+  const { cwd, repoPath, cloneInfo } = await resolveRepoCwd(session.issueId);
+
   // Build prompt using the agent prompt module
   const prompt = buildAgentPrompt({
-    repoPath: REPO_PATH,
+    repoPath,
+    cloneInfo,
     session,
     promptContext,
     userMessage,
@@ -248,17 +333,8 @@ async function runAgent(
     issueIdentifier: issue.identifier,
     promptLength: prompt.length,
     isFollowUp: !!userMessage,
-    cwd: REPO_PATH,
+    cwd,
   });
-
-  // CRITICAL: Emit activity immediately to avoid "unresponsive" status (must be within 10s)
-  const activityMessage = userMessage
-    ? `Processing follow-up message...`
-    : `Analyzing issue ${issue.identifier}...`;
-  await emitActivity(session.id, {
-    type: "thought",
-    body: activityMessage,
-  }); // persistent - keeping all events for granular tracking
 
   try {
     let responseText = "";
@@ -266,7 +342,7 @@ async function runAgent(
     const iterator = query({
       prompt,
       options: {
-        cwd: REPO_PATH,
+        cwd,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         tools: { type: "preset", preset: "claude_code" },
@@ -675,17 +751,16 @@ app.post("/webhook", async (c) => {
   return c.json({ received: true });
 });
 
-// Validate config
-if (!existsSync(REPO_PATH)) {
-  log("error", "REPO_PATH does not exist — agent will not be able to run", { repoPath: REPO_PATH });
-  process.exit(1);
+// Ensure REPOS_BASE exists
+if (!existsSync(REPOS_BASE)) {
+  mkdirSync(REPOS_BASE, { recursive: true });
 }
 
 // Start server
 const port = parseInt(process.env.PORT || "3000");
 log("info", "Claude agent server starting", {
   port,
-  repoPath: REPO_PATH,
+  reposBase: REPOS_BASE,
   nodeEnv: process.env.NODE_ENV || "development",
   hasWebhookSecret: !!WEBHOOK_SECRET,
   hasAccessToken: !!ACCESS_TOKEN,
