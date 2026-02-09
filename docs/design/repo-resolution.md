@@ -2,7 +2,9 @@
 
 ## Problem
 
-When Claude receives a task via Linear, it needs a working directory. Today `REPO_PATH` is a single static path. We need Claude to work on arbitrary repos depending on what issue it's assigned.
+When Claude receives a task via Linear, it needs a working directory. We need Claude to work on arbitrary repos depending on what issue it's assigned.
+
+> **Status (2026-02-09):** Phase 1 is implemented. Dynamic repo resolution is live — the server queries the issue's project for a GitHub link, resolves to `REPOS_BASE/{org}/{repo}`, and falls back to `_scratch`. See "Implementation Status" section below.
 
 ## Scenarios
 
@@ -47,13 +49,17 @@ issue
         → clone if missing
 ```
 
-**Concrete steps in the webhook handler:**
+**Concrete steps (implemented in `resolveRepoCwd()` in `server.ts`):**
 
-1. Extract `session.issue.project.id` from the webhook payload
-2. Query Linear API: `project(id) { resources { url } }` — filter for GitHub URLs
-3. If found, derive local path: `{REPOS_BASE}/{org}/{repo}` (e.g. `~/repos/iansinnott/finfun`)
-4. If directory doesn't exist, `git clone` it
-5. If no repo found, use a default scratch directory
+1. Query Linear API: `issue(id) { project { externalLinks { nodes { url } } } }` using the issue ID from the webhook session
+2. Find first GitHub URL via `findGitHubLink()` (in `lib.ts`)
+3. Parse it via `parseGitHubUrl()` → `{ org, repo }` (handles HTTPS, SSH, `.git`, trailing paths)
+4. Check if `{REPOS_BASE}/{org}/{repo}` exists on disk
+5. If exists → use as cwd, pass as `repoPath` in agent prompt
+6. If linked but not on disk → use `_scratch` as cwd, pass `cloneInfo` (git URL + target path) so agent knows where to clone
+7. If no repo linked → use `_scratch` as cwd, prompt tells agent "no codebase linked"
+
+**Key decision: the server does NOT auto-clone.** Cloning is the agent's responsibility. The server provides the clone command in the prompt. This keeps the server fast (no blocking on `git clone`) and lets the agent decide whether cloning is needed for the task. Once cloned, subsequent webhook invocations find the repo on disk automatically.
 
 **What about sub-issues?** Linear sub-issues inherit their parent's project. If an issue has no project, we walk up the parent chain. In practice this should rarely matter — most issues belong to a project directly.
 
