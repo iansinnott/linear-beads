@@ -1,8 +1,13 @@
-# lb-cli
+# limbic
 
-## Running the Linear Agent Server
+This project has two components:
 
-When asked to "run the server" or start the Linear agent, use:
+- **`claude-linear-agent/`** — Hono/Bun webhook server that receives Linear agent events and runs Claude Code via the agent SDK
+- **`src/`** — `lb` CLI tool for interacting with Linear from the command line
+
+## Linear Agent Server (`claude-linear-agent/`)
+
+### Running
 
 ```bash
 cd claude-linear-agent
@@ -26,9 +31,40 @@ tail -f claude-linear-agent/tmp/dev.log
 
 Use `--no-log` to disable file logging: `bun run dev --no-log`
 
+### Module structure
+
+| File | Responsibility |
+| --- | --- |
+| `server.ts` | Hono routes, webhook dispatch, session dedup, abort controller management |
+| `agent.ts` | `runAgent()` — runs Claude Code and streams activities back to Linear |
+| `linear-api.ts` | Linear GraphQL client, all mutations, `emitActivity()` |
+| `repo.ts` | `resolveRepoCwd()` — maps issue → project → GitHub repo → local directory |
+| `lib.ts` | Types, webhook signature verification, event helper predicates |
+| `agent-prompt.ts` | Builds the system prompt sent to Claude Code |
+| `logger.ts` | Structured JSON `log()` helper |
+
+Dependency flow: `logger` and `lib` are leaf modules → `linear-api` → `repo` → `agent` → `server`.
+
+### Testing
+
+```bash
+cd claude-linear-agent
+bun test                    # Run all tests
+bun test server.test.ts     # Unit tests (lib, mutations, prompt builder)
+bun test webhook.test.ts    # Integration tests (full HTTP cycle, agent invocation verification)
+```
+
+### Key design decisions
+
+- **First activity must be emitted within 10s** of the `created` webhook or Linear shows the session as unresponsive.
+- **Repo resolution** runs after the first activity emission to stay within that 10s window.
+- **The server does NOT auto-clone repos** — it provides clone instructions in the agent prompt and lets the agent decide.
+- **`emitActivity()` with type `"response"`** is what tells Linear the session is complete. No separate `postComment()` needed.
+- See `docs/design/repo-resolution.md` for the full repo resolution design.
+
 ---
 
-## Issue Tracking
+## `lb` CLI (`src/`)
 
 This project uses **lb** for issue tracking via Linear.
 
