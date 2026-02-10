@@ -14,13 +14,15 @@ import {
   getPromptedMessage,
   isStopSignal,
   isSelfTrigger,
-  createCommentMutation,
-  createActivityMutation,
   parseForClarification,
   CLARIFICATION_MARKER,
   type LinearWebhookPayload,
   type AgentSessionData,
 } from "./lib";
+import {
+  createCommentMutation,
+  createActivityMutation,
+} from "./linear-api";
 import { buildAgentPrompt } from "./agent-prompt";
 
 // Sample payload from actual Linear webhook (sanitized)
