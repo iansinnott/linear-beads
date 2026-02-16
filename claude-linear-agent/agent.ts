@@ -5,11 +5,82 @@
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
+import { dirname, join } from "path";
 import { log } from "./logger";
 import { emitActivity } from "./linear-api";
 import { resolveRepoCwd } from "./repo";
 import { buildAgentPrompt } from "./agent-prompt";
 import { parseForClarification, type AgentSessionData } from "./lib";
+
+/**
+ * Disk-persisted mapping of Linear session ID → Claude Code session ID.
+ * Survives server restarts so multi-turn resumption works across deploys.
+ */
+export class SessionStore {
+  private path: string;
+  private cache: Record<string, string> | null = null;
+
+  constructor(path: string) {
+    this.path = path;
+  }
+
+  private load(): Record<string, string> {
+    if (this.cache) return this.cache;
+    if (!existsSync(this.path)) {
+      this.cache = {};
+      return this.cache;
+    }
+    try {
+      this.cache = JSON.parse(readFileSync(this.path, "utf-8"));
+      if (typeof this.cache !== "object" || this.cache === null || Array.isArray(this.cache)) {
+        throw new Error("Invalid session map format");
+      }
+    } catch (err) {
+      log("warn", "Corrupt or unreadable session map, starting empty", {
+        path: this.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.cache = {};
+    }
+    return this.cache!;
+  }
+
+  get(linearSessionId: string): string | undefined {
+    return this.load()[linearSessionId];
+  }
+
+  set(linearSessionId: string, claudeSessionId: string): void {
+    const data = this.load();
+    data[linearSessionId] = claudeSessionId;
+    this.write(data);
+  }
+
+  delete(linearSessionId: string): void {
+    const data = this.load();
+    if (linearSessionId in data) {
+      delete data[linearSessionId];
+      this.write(data);
+    }
+  }
+
+  private write(data: Record<string, string>): void {
+    const dir = dirname(this.path);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const tmpPath = this.path + ".tmp";
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+    renameSync(tmpPath, this.path);
+  }
+}
+
+const defaultSessionStorePath = join(
+  dirname(new URL(import.meta.url).pathname),
+  "data",
+  "session-map.json"
+);
+const sessionStore = new SessionStore(defaultSessionStorePath);
 
 // Sanitize @mentions to prevent self-triggering loops
 // AIDEV-NOTE: Critical for preventing infinite webhook loops - if agent response
@@ -50,45 +121,65 @@ export async function runAgent(
   // Resolve working directory from project context
   const { cwd, repoPath, cloneInfo } = await resolveRepoCwd(session.issueId);
 
-  // Build prompt using the agent prompt module
-  const prompt = buildAgentPrompt({
-    repoPath,
-    cloneInfo,
-    session,
-    promptContext,
-    userMessage,
-  });
+  // Check if we can resume a previous Claude Code session for this Linear session
+  const existingClaudeSessionId = userMessage ? sessionStore.get(session.id) : undefined;
+
+  // Build prompt: if resuming, just send the user's message (session has full history).
+  // If not resuming (or initial), build the full prompt with system instructions + context.
+  const prompt = existingClaudeSessionId
+    ? userMessage!
+    : buildAgentPrompt({
+        repoPath,
+        cloneInfo,
+        session,
+        promptContext,
+        userMessage,
+      });
 
   log("info", "Starting agent run", {
     sessionId: session.id,
     issueIdentifier: issue.identifier,
     promptLength: prompt.length,
     isFollowUp: !!userMessage,
+    resumingSession: existingClaudeSessionId || false,
     cwd,
   });
 
   try {
     let responseText = "";
 
-    const iterator = query({
-      prompt,
-      options: {
-        cwd,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        tools: { type: "preset", preset: "claude_code" },
-        includePartialMessages: false,
-        abortController,
-      },
-    });
+    const baseOptions = {
+      cwd,
+      permissionMode: "bypassPermissions" as const,
+      allowDangerouslySkipPermissions: true,
+      tools: { type: "preset" as const, preset: "claude_code" as const },
+      includePartialMessages: false,
+      abortController,
+    };
+
+    const queryOptions = existingClaudeSessionId
+      ? { ...baseOptions, resume: existingClaudeSessionId }
+      : baseOptions;
+    const iterator = query({ prompt, options: queryOptions });
 
     // Track stats for summary
     let turnCount = 0;
     let toolsUsed: string[] = [];
     let filesAccessed: string[] = [];
     let lastToolUseId: string | undefined;
+    let claudeSessionCaptured = false;
 
     for await (const message of iterator) {
+      // Capture the Claude Code session ID from the first message for future resumption
+      if (!claudeSessionCaptured && "session_id" in message && message.session_id) {
+        sessionStore.set(session.id, message.session_id as string);
+        claudeSessionCaptured = true;
+        log("info", "Captured Claude session for resumption", {
+          linearSessionId: session.id,
+          claudeSessionId: message.session_id,
+        });
+      }
+
       if (message.type === "assistant") {
         for (const block of message.message.content) {
           if (block.type === "text") {
@@ -279,6 +370,15 @@ export async function runAgent(
       });
     }
   } catch (error) {
+    // If we were trying to resume, clear the stale mapping so the next
+    // follow-up starts a fresh session instead of retrying the same broken resume
+    if (existingClaudeSessionId) {
+      sessionStore.delete(session.id);
+      log("warn", "Cleared stale session mapping after resume failure", {
+        linearSessionId: session.id,
+        claudeSessionId: existingClaudeSessionId,
+      });
+    }
     const errorMsg = `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`;
     await emitActivity(session.id, { type: "error", body: sanitizeMentions(errorMsg) });
     log("error", "Agent failed with error", {

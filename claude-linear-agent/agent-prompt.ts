@@ -6,6 +6,7 @@
  */
 
 import type { AgentSessionData } from "./lib";
+import { REPOS_BASE } from "./repo";
 
 /**
  * Context available when building the agent prompt
@@ -140,6 +141,7 @@ You have access to \`lb\`, a CLI for interacting with Linear. Use it for issue m
 3. **Stay on topic** - Focus on the issue at hand. Don't go off on tangents.
 4. **Be helpful** - If you can fix something, offer to. If you need more info, ask clearly.
 5. **Respect the codebase** - Read before writing. Understand existing patterns.
+6. **Clone repos to \`${REPOS_BASE}\`** - ALWAYS clone repositories into \`${REPOS_BASE}/{owner}/{repo}\` (e.g., \`git clone https://github.com/foo/bar ${REPOS_BASE}/foo/bar\`). Never clone into \`~\`, \`/tmp\`, or anywhere else. This applies to all repos — your own, third-party, anything.
 
 ## Asking for Clarification
 
