@@ -306,12 +306,26 @@ export function isProjectUpdateCommentForClaude(payload: LinearWebhookPayload): 
 
 /**
  * Check if this comment was created by our agent (self-trigger)
+ * AIDEV-NOTE: Comment webhooks don't include appUserId at the top level like AgentSessionEvent.
+ * Instead, we detect OAuth app users by their email domain (@oauthapp.linear.app).
  */
 export function isProjectUpdateCommentSelfTrigger(payload: LinearWebhookPayload): boolean {
   const data = payload.data as ProjectUpdateCommentData | undefined;
   if (!data) return false;
-  // Compare comment author with our app user ID
-  return data.userId === payload.appUserId;
+
+  // Primary check: if appUserId is present, use it
+  if (payload.appUserId && data.userId === payload.appUserId) {
+    return true;
+  }
+
+  // Fallback: detect OAuth app users by their email domain
+  // All Linear OAuth apps have emails ending in @oauthapp.linear.app
+  const userEmail = data.user?.email || "";
+  if (userEmail.endsWith("@oauthapp.linear.app")) {
+    return true;
+  }
+
+  return false;
 }
 
 // AIDEV-NOTE: Marker used by agent to signal it needs user clarification

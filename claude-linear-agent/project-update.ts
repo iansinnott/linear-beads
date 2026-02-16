@@ -111,7 +111,18 @@ async function postCommentReply(
       createProjectUpdateCommentReplyMutation(projectUpdateId, parentCommentId, body)
     );
     const commentCreate = (result.data as Record<string, unknown>)?.commentCreate as { success?: boolean } | undefined;
-    return commentCreate?.success === true;
+    const success = commentCreate?.success === true;
+
+    if (!success) {
+      log("error", "Linear API rejected comment reply", {
+        projectUpdateId,
+        parentCommentId,
+        errors: result.errors,
+        data: result.data,
+      });
+    }
+
+    return success;
   } catch (err) {
     log("error", "Failed to post reply to comment", {
       projectUpdateId,
@@ -252,6 +263,11 @@ export async function handleProjectUpdateComment(data: ProjectUpdateCommentData)
   const projectId = data.projectUpdate?.project?.id;
   const userName = data.user?.name;
 
+  // AIDEV-NOTE: Linear requires parentId to be the ROOT comment of a thread.
+  // If data.parentId exists, this comment is a reply, so use the existing root.
+  // If data.parentId is undefined, this comment IS the root (top-level comment).
+  const threadRootId = data.parentId || commentId;
+
   // 1. Add 👀 reaction to acknowledge the user's comment
   // Comments don't have the same initialization delay as project updates
   await addCommentReaction(commentId, "eyes");
@@ -260,7 +276,7 @@ export async function handleProjectUpdateComment(data: ProjectUpdateCommentData)
     log("error", "No project ID in comment data", { commentId, projectUpdateId });
     await postCommentReply(
       projectUpdateId,
-      commentId,
+      threadRootId,
       "I couldn't find the project context for this conversation."
     );
     return;
@@ -320,21 +336,23 @@ export async function handleProjectUpdateComment(data: ProjectUpdateCommentData)
       }
     }
 
-    // 5. Post reply as a threaded response
+    // 5. Post reply as a threaded response (always use threadRootId for Linear API)
     if (responseText) {
       const sanitized = sanitizeMentions(responseText);
-      const success = await postCommentReply(projectUpdateId, commentId, sanitized);
+      const success = await postCommentReply(projectUpdateId, threadRootId, sanitized);
       log(success ? "info" : "error", "Posted project update comment response", {
         commentId,
+        threadRootId,
         projectUpdateId,
         responseLength: sanitized.length,
         success,
       });
     } else {
       const fallback = "I looked into this but couldn't formulate a response. Please try rephrasing your request.";
-      await postCommentReply(projectUpdateId, commentId, fallback);
+      await postCommentReply(projectUpdateId, threadRootId, fallback);
       log("warn", "Project update comment agent completed with fallback response", {
         commentId,
+        threadRootId,
         projectUpdateId,
       });
     }
@@ -343,11 +361,12 @@ export async function handleProjectUpdateComment(data: ProjectUpdateCommentData)
     await addCommentReaction(commentId, "claude");
   } catch (error) {
     const errorMsg = `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`;
-    await postCommentReply(projectUpdateId, commentId, sanitizeMentions(errorMsg));
+    await postCommentReply(projectUpdateId, threadRootId, sanitizeMentions(errorMsg));
     // Still add :claude: on error so user knows we tried to respond
     await addCommentReaction(commentId, "claude");
     log("error", "Project update comment agent failed", {
       commentId,
+      threadRootId,
       projectUpdateId,
       durationMs: Date.now() - startTime,
       error: error instanceof Error ? error.message : String(error),

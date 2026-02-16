@@ -623,6 +623,29 @@ describe("isProjectUpdateCommentSelfTrigger", () => {
     expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(true);
   });
 
+  test("returns true when user email is OAuth app email (no appUserId)", () => {
+    // This is the real-world case: Comment webhooks don't include appUserId
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      // No appUserId in Comment webhooks!
+      data: {
+        id: "comment-123",
+        body: "My response",
+        projectUpdateId: "update-123",
+        userId: "125ac554-2838-4963-acbf-f1c42454fca3",
+        user: {
+          id: "125ac554-2838-4963-acbf-f1c42454fca3",
+          name: "Claude",
+          email: "4be21ae3-87f0-43a1-833f-114b7cc2c646@oauthapp.linear.app",
+        },
+      },
+    };
+    expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(true);
+  });
+
   test("returns false when comment userId differs from appUserId", () => {
     const payload: LinearWebhookPayload = {
       type: "Comment",
@@ -635,6 +658,27 @@ describe("isProjectUpdateCommentSelfTrigger", () => {
         body: "User's comment",
         projectUpdateId: "update-123",
         userId: "human-user-456", // Different from appUserId
+      },
+    };
+    expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(false);
+  });
+
+  test("returns false for human user (no appUserId, normal email)", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      data: {
+        id: "comment-123",
+        body: "User's comment",
+        projectUpdateId: "update-123",
+        userId: "human-user-456",
+        user: {
+          id: "human-user-456",
+          name: "Human User",
+          email: "human@example.com",
+        },
       },
     };
     expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(false);
