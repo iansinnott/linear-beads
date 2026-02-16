@@ -205,32 +205,17 @@ ${session.comment?.body ? `Comment: ${session.comment.body}` : ""}
 
   const issueIdentifier = issue.identifier;
 
-  // For follow-up messages, focus on the user's new message
+  const taskParts = [issueContext];
   if (userMessage) {
-    return `
-${getSystemInstructions(repoPath, issueIdentifier, cloneInfo)}
-
-## Current Issue Context
-
-${issueContext}
-
-## User's Follow-up Message
-
-${userMessage}
-
-Please help with this follow-up request.
-`.trim();
+    taskParts.push(userMessage);
   }
 
-  // Initial invocation
   return `
 ${getSystemInstructions(repoPath, issueIdentifier, cloneInfo)}
 
 ## Task
 
-${issueContext}
-
-Please investigate and help with this request.
+${taskParts.join("\n\n")}
 `.trim();
 }
 

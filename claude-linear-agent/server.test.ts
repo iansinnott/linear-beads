@@ -181,7 +181,7 @@ describe("buildAgentPrompt", () => {
       userMessage: "Can you also check the tests?",
     });
     expect(prompt).toContain("Can you also check the tests?");
-    expect(prompt).toContain("Follow-up Message");
+    expect(prompt).toContain("## Task");
   });
 });
 
