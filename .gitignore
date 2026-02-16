@@ -28,3 +28,4 @@ weather-bot/
 # Claude Code (local)
 .claude/
 CLAUDE.md
+/claude-linear-agent/scripts

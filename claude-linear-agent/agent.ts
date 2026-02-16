@@ -4,7 +4,7 @@
  * Runs Claude Code via the agent SDK and streams activities back to Linear.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options as ClaudeQueryOptions } from "@anthropic-ai/claude-agent-sdk";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { dirname, join } from "path";
 import { log } from "./logger";
@@ -148,7 +148,7 @@ export async function runAgent(
   try {
     let responseText = "";
 
-    const baseOptions = {
+    const baseOptions: ClaudeQueryOptions = {
       cwd,
       permissionMode: "bypassPermissions" as const,
       allowDangerouslySkipPermissions: true,
@@ -157,7 +157,7 @@ export async function runAgent(
       abortController,
     };
 
-    const queryOptions = existingClaudeSessionId
+    const queryOptions: ClaudeQueryOptions = existingClaudeSessionId
       ? { ...baseOptions, resume: existingClaudeSessionId }
       : baseOptions;
     const iterator = query({ prompt, options: queryOptions });

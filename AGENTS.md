@@ -1,8 +1,11 @@
 # limbic
 
+A Linear Coding CLI and Agents Server
+
 This project has two components:
 
-- **`claude-linear-agent/`** — Hono/Bun webhook server that receives Linear agent events and runs Claude Code via the agent SDK
+- **`claude-linear-agent/`** — Hono/Bun webhook server that receives Linear agent events and runs agents via the agent SDK
+    - As of this commit, only Claude Code is supported. but there are plans to support Codex too (see GENT-1041).
 - **`src/`** — `lb` CLI tool for interacting with Linear from the command line
 
 ## Linear Agent Server (`claude-linear-agent/`)
@@ -32,6 +35,8 @@ tail -f claude-linear-agent/tmp/dev.log
 Use `--no-log` to disable file logging: `bun run dev --no-log`
 
 ### Module structure
+
+As of 2026-02-10. For more information on the recent refactor see: GENT-1042.
 
 | File | Responsibility |
 | --- | --- |
@@ -243,3 +248,7 @@ Version follows `0.X.0` format where X maps to the changelog version (e.g., v11 
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
+**FILING BUGS**:
+
+- `lb` is a work in progress, if you find bugs ir shortcomings file a ticket in Linear under the `limbic` project in Linear (https://linear.app/iansinnott/project/limbic-6ea157ab1381). Include relevant context and repo instructions if known.
