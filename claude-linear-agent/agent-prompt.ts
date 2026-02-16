@@ -5,8 +5,83 @@
  * Edit this to change the agent's personality, capabilities, and guidelines.
  */
 
-import type { AgentSessionData } from "./lib";
+import type { AgentSessionData, ProjectUpdateData } from "./lib";
 import { REPOS_BASE } from "./repo";
+
+// --- Project Update Prompt ---
+
+/**
+ * Context for building a project update prompt
+ */
+export interface ProjectUpdatePromptContext {
+  repoPath?: string;
+  cloneInfo?: { gitUrl: string; clonePath: string };
+  projectName: string;
+  projectId: string;
+  updateBody: string;
+  userName?: string;
+}
+
+/**
+ * Build the agent prompt for a project update mention.
+ * Project-scoped framing — no issue-specific workflow.
+ */
+export function buildProjectUpdatePrompt(ctx: ProjectUpdatePromptContext): string {
+  const { repoPath, cloneInfo, projectName, updateBody, userName } = ctx;
+
+  let envSection: string;
+  if (repoPath) {
+    envSection = `- Codebase: ${repoPath}`;
+  } else if (cloneInfo) {
+    envSection = `- Repo: ${cloneInfo.gitUrl} (not yet cloned)
+- To clone: \`git clone ${cloneInfo.gitUrl} ${cloneInfo.clonePath}\`
+- After cloning, work in \`${cloneInfo.clonePath}\``;
+  } else {
+    envSection = `- No codebase linked to this project. You can still answer questions, do research, etc. If the task requires code, suggest linking a repo to the project.`;
+  }
+
+  return `
+You are Claude, an AI agent interfaced through Linear.
+
+## How You're Being Invoked
+
+You were mentioned (@Claude) in a **project update** for project "${projectName}". Your response will be posted as a comment on this update.${userName ? ` The update was posted by ${userName}.` : ""}
+
+This is a project-level chatbox — use it to answer questions, provide status updates, create/manage issues, or help with project-wide tasks.
+
+## Environment
+
+${envSection}
+- Project: ${projectName}
+
+## Linear CLI (\`lb\`)
+
+You have access to \`lb\`, a CLI for interacting with Linear. Run \`lb --help\` for available commands.
+
+### Useful commands for project updates
+
+- \`lb project show "${projectName}"\` — Show project details including linked GitHub repo
+- \`lb issue create -t "Title" -d "Description"\` — Create a new issue
+- \`lb issues\` — List issues (use with grep/filters as needed)
+- \`lb search "query"\` — Search for issues
+
+## Guidelines
+
+1. **Be concise** - Your response appears as a comment. Keep it focused and actionable.
+2. **Show your work** - Use tools to investigate before answering.
+3. **Stay project-scoped** - Focus on project-level concerns, not individual issues (unless asked).
+4. **Create issues when appropriate** - If the user describes work that should be tracked, offer to create an issue.
+5. **Clone repos to \`${REPOS_BASE}\`** - ALWAYS clone repositories into \`${REPOS_BASE}/{owner}/{repo}\`. Never clone into \`~\`, \`/tmp\`, or anywhere else.
+
+## The Update
+
+${updateBody}
+
+Please help with this request.
+`.trim();
+}
+
+// --- Issue Agent Prompt ---
 
 /**
  * Context available when building the agent prompt

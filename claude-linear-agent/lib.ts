@@ -202,6 +202,52 @@ export function isSelfTrigger(payload: LinearWebhookPayload): boolean {
   return creatorId === ourAgentId;
 }
 
+// --- Project Update Types and Helpers ---
+
+/**
+ * Project update payload shape (from ProjectUpdate webhook)
+ * See issue description for example payload
+ */
+export interface ProjectUpdateData {
+  id: string;
+  body: string;
+  bodyData?: string;
+  projectId: string;
+  health?: string;
+  userId: string;
+  project?: {
+    id: string;
+    name: string;
+    url?: string;
+  };
+  user?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
+/**
+ * Check if this is a project update mentioning @claude
+ */
+export function isProjectUpdateMention(payload: LinearWebhookPayload): boolean {
+  return (
+    payload.type === "ProjectUpdate" &&
+    payload.action === "create" &&
+    /@claude/i.test((payload.data?.body as string) || "")
+  );
+}
+
+/**
+ * Check if this project update was created by our agent (self-trigger)
+ */
+export function isProjectUpdateSelfTrigger(payload: LinearWebhookPayload): boolean {
+  const data = payload.data as ProjectUpdateData | undefined;
+  if (!data) return false;
+  // Compare update author with our app user ID
+  return data.userId === payload.appUserId;
+}
+
 // AIDEV-NOTE: Marker used by agent to signal it needs user clarification
 // When present, we emit "elicitation" instead of "response", keeping session in awaitingInput state
 export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";

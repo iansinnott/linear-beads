@@ -81,6 +81,43 @@ export function createAttachmentMutation(
 }
 
 /**
+ * Create GraphQL mutation for commenting on a project update.
+ * Used for project-level chatbox responses.
+ */
+export function createProjectUpdateCommentMutation(projectUpdateId: string, body: string) {
+  return {
+    query: `
+      mutation CreateProjectUpdateComment($projectUpdateId: String!, $body: String!) {
+        commentCreate(input: { projectUpdateId: $projectUpdateId, body: $body }) {
+          success
+          comment { id }
+        }
+      }
+    `,
+    variables: { projectUpdateId, body },
+  };
+}
+
+/**
+ * Create GraphQL mutation for adding an emoji reaction.
+ * Used for fast acknowledgment on project updates.
+ */
+export function createReactionMutation(projectUpdateId: string, emoji: string) {
+  return {
+    query: `
+      mutation CreateReaction($input: ReactionCreateInput!) {
+        reactionCreate(input: $input) {
+          success
+        }
+      }
+    `,
+    variables: {
+      input: { projectUpdateId, emoji },
+    },
+  };
+}
+
+/**
  * Create GraphQL mutation for adding a resource link to a project.
  */
 export function createProjectLinkMutation(

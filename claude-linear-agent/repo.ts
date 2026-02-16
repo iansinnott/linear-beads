@@ -78,7 +78,97 @@ export function createIssueProjectQuery(issueId: string) {
   };
 }
 
+/**
+ * Create GraphQL query to fetch a project's external links directly.
+ * Used for project update resolution (no issue lookup needed).
+ */
+export function createProjectExternalLinksQuery(projectId: string) {
+  return {
+    query: `
+      query GetProjectExternalLinks($projectId: String!) {
+        project(id: $projectId) {
+          id
+          name
+          externalLinks {
+            nodes {
+              url
+              label
+            }
+          }
+        }
+      }
+    `,
+    variables: { projectId },
+  };
+}
+
 // --- Repo resolution ---
+
+/**
+ * Resolve the working directory for a project update.
+ * Simpler than resolveRepoCwd since we already have projectId.
+ *
+ * Resolution chain:
+ *   projectId → externalLinks → GitHub URL → REPOS_BASE/{org}/{repo}
+ */
+export async function resolveProjectRepoCwd(projectId: string): Promise<{
+  cwd: string;
+  repoPath: string | undefined;
+  cloneInfo?: { gitUrl: string; clonePath: string };
+}> {
+  try {
+    const result = await linearApiRequest(createProjectExternalLinksQuery(projectId));
+    const project = (result.data as Record<string, unknown>)?.project as Record<string, unknown> | undefined;
+
+    if (project) {
+      const nodes = ((project.externalLinks as Record<string, unknown>)?.nodes || []) as Array<{ url: string }>;
+      const githubUrl = findGitHubLink(nodes);
+
+      if (githubUrl) {
+        const parsed = parseGitHubUrl(githubUrl);
+        if (parsed) {
+          const repoDir = join(REPOS_BASE, parsed.org, parsed.repo);
+          if (existsSync(repoDir)) {
+            log("info", "Resolved repo from project link", {
+              projectId,
+              project: project.name,
+              repo: `${parsed.org}/${parsed.repo}`,
+              repoDir,
+            });
+            return { cwd: repoDir, repoPath: repoDir };
+          }
+          // Repo linked but not on disk
+          log("info", "Repo linked but not on disk", {
+            projectId,
+            project: project.name,
+            repo: `${parsed.org}/${parsed.repo}`,
+            expectedDir: repoDir,
+          });
+          if (!existsSync(SCRATCH_DIR)) {
+            mkdirSync(SCRATCH_DIR, { recursive: true });
+          }
+          return {
+            cwd: SCRATCH_DIR,
+            repoPath: undefined,
+            cloneInfo: { gitUrl: githubUrl, clonePath: repoDir },
+          };
+        }
+      }
+    }
+  } catch (err) {
+    log("warn", "Failed to resolve repo from project", {
+      projectId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Fallback: scratch directory
+  if (!existsSync(SCRATCH_DIR)) {
+    mkdirSync(SCRATCH_DIR, { recursive: true });
+  }
+  log("info", "Using scratch directory", { projectId, scratchDir: SCRATCH_DIR });
+  return { cwd: SCRATCH_DIR, repoPath: undefined };
+}
 
 /**
  * Resolve the working directory for an agent run based on the issue's project.
