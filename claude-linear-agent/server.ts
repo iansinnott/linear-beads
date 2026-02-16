@@ -19,8 +19,15 @@ import {
   getPromptedMessage,
   isStopSignal,
   isSelfTrigger,
+  isProjectUpdateMention,
+  isProjectUpdateSelfTrigger,
+  isProjectUpdateCommentForClaude,
+  isProjectUpdateCommentSelfTrigger,
   type LinearWebhookPayload,
+  type ProjectUpdateData,
+  type ProjectUpdateCommentData,
 } from "./lib";
+import { handleProjectUpdate, handleProjectUpdateComment } from "./project-update";
 
 const app = new Hono();
 
@@ -89,6 +96,30 @@ app.post("/webhook", async (c) => {
     sessionId: payload.agentSession?.id,
     issueIdentifier: payload.agentSession?.issue?.identifier,
   });
+
+  // AIDEV-NOTE: Enhanced logging for ProjectUpdate events to debug emoji disappearing issue
+  // Log ALL ProjectUpdate webhooks with details about reactions
+  if (payload.type === "ProjectUpdate") {
+    const data = payload.data as ProjectUpdateData | undefined;
+    log("info", "ProjectUpdate webhook details", {
+      action: payload.action,
+      projectUpdateId: data?.id,
+      projectName: data?.project?.name,
+      bodyPreview: data?.body?.slice(0, 50),
+      reactionData: (data as Record<string, unknown>)?.reactionData,
+      hasClaude: /@claude/i.test(data?.body || ""),
+    });
+
+    // Save ALL project update webhooks (not just create) for debugging
+    if (process.env.NODE_ENV !== "production") {
+      const fs = require("fs");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      fs.writeFileSync(
+        `/tmp/pu-webhook-${payload.action}-${timestamp}.json`,
+        JSON.stringify(payload, null, 2)
+      );
+    }
+  }
 
   // Handle agent session events
   if (isAgentSessionCreated(payload)) {
@@ -242,6 +273,108 @@ app.post("/webhook", async (c) => {
         // Clean up the abort controller when done
         runningAgents.delete(session.id);
       });
+
+    return c.json({ received: true });
+  }
+
+  // Handle project update mentions
+  if (isProjectUpdateMention(payload)) {
+    const data = payload.data as ProjectUpdateData;
+
+    // Deduplication on project update ID
+    if (isSessionProcessed(data.id)) {
+      log("warn", "Duplicate project update detected, skipping", {
+        projectUpdateId: data.id,
+        projectName: data.project?.name,
+      });
+      return c.json({ received: true, skipped: "duplicate" });
+    }
+
+    // Self-trigger detection
+    if (isProjectUpdateSelfTrigger(payload)) {
+      log("warn", "Project update self-trigger detected, skipping", {
+        projectUpdateId: data.id,
+        userId: data.userId,
+        appUserId: payload.appUserId,
+      });
+      return c.json({ received: true, skipped: "self-trigger" });
+    }
+
+    // Mark as processed before starting work
+    markSessionProcessed(data.id);
+
+    log("info", "Processing project update mention", {
+      projectUpdateId: data.id,
+      projectId: data.projectId,
+      projectName: data.project?.name,
+      userName: data.user?.name,
+      bodyPreview: data.body?.slice(0, 100),
+    });
+
+    // Save payload for debugging (in dev only)
+    if (process.env.NODE_ENV !== "production") {
+      const fs = require("fs");
+      fs.writeFileSync("/tmp/linear-webhook-project-update.json", JSON.stringify(payload, null, 2));
+    }
+
+    // Run handler asynchronously (don't block webhook response)
+    handleProjectUpdate(data).catch((error) => {
+      log("error", "Unhandled error in handleProjectUpdate", {
+        projectUpdateId: data.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return c.json({ received: true });
+  }
+
+  // Handle comments on project updates where Claude is in the thread
+  if (isProjectUpdateCommentForClaude(payload)) {
+    const data = payload.data as unknown as ProjectUpdateCommentData;
+
+    // Deduplication on comment ID
+    if (isSessionProcessed(data.id)) {
+      log("warn", "Duplicate project update comment detected, skipping", {
+        commentId: data.id,
+        projectUpdateId: data.projectUpdateId,
+      });
+      return c.json({ received: true, skipped: "duplicate" });
+    }
+
+    // Self-trigger detection
+    if (isProjectUpdateCommentSelfTrigger(payload)) {
+      log("warn", "Project update comment self-trigger detected, skipping", {
+        commentId: data.id,
+        userId: data.userId,
+        appUserId: payload.appUserId,
+      });
+      return c.json({ received: true, skipped: "self-trigger" });
+    }
+
+    // Mark as processed before starting work
+    markSessionProcessed(data.id);
+
+    log("info", "Processing project update comment", {
+      commentId: data.id,
+      projectUpdateId: data.projectUpdateId,
+      projectName: data.projectUpdate?.project?.name,
+      userName: data.user?.name,
+      bodyPreview: data.body?.slice(0, 100),
+    });
+
+    // Save payload for debugging (in dev only)
+    if (process.env.NODE_ENV !== "production") {
+      const fs = require("fs");
+      fs.writeFileSync("/tmp/linear-webhook-project-update-comment.json", JSON.stringify(payload, null, 2));
+    }
+
+    // Run handler asynchronously (don't block webhook response)
+    handleProjectUpdateComment(data).catch((error) => {
+      log("error", "Unhandled error in handleProjectUpdateComment", {
+        commentId: data.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     return c.json({ received: true });
   }

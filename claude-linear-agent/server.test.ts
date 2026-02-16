@@ -16,6 +16,8 @@ import {
   isSelfTrigger,
   parseForClarification,
   CLARIFICATION_MARKER,
+  isProjectUpdateCommentForClaude,
+  isProjectUpdateCommentSelfTrigger,
   type LinearWebhookPayload,
   type AgentSessionData,
 } from "./lib";
@@ -505,5 +507,147 @@ describe("parseForClarification", () => {
 
   test("CLARIFICATION_MARKER constant matches expected value", () => {
     expect(CLARIFICATION_MARKER).toBe("[NEEDS_CLARIFICATION]");
+  });
+});
+
+describe("isProjectUpdateCommentForClaude", () => {
+  test("returns true for comment on project update with @claude mention", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      data: {
+        id: "comment-123",
+        body: "hi there",
+        projectUpdateId: "update-123",
+        userId: "user-456",
+        projectUpdate: {
+          id: "update-123",
+          body: "@claude do you know where this project lives on disk?",
+          userId: "user-456",
+          project: {
+            id: "project-789",
+            name: "test-project",
+          },
+        },
+      },
+    };
+    expect(isProjectUpdateCommentForClaude(payload)).toBe(true);
+  });
+
+  test("returns false for comment on project update without @claude mention", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      data: {
+        id: "comment-123",
+        body: "hi there",
+        projectUpdateId: "update-123",
+        userId: "user-456",
+        projectUpdate: {
+          id: "update-123",
+          body: "Just a regular update without claude",
+          userId: "user-456",
+        },
+      },
+    };
+    expect(isProjectUpdateCommentForClaude(payload)).toBe(false);
+  });
+
+  test("returns false for comment without projectUpdateId (issue comment)", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      data: {
+        id: "comment-123",
+        body: "hi there",
+        issueId: "issue-123", // This is an issue comment, not project update
+        userId: "user-456",
+      },
+    };
+    expect(isProjectUpdateCommentForClaude(payload)).toBe(false);
+  });
+
+  test("returns false for update action (not create)", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "update",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      data: {
+        id: "comment-123",
+        body: "hi there",
+        projectUpdateId: "update-123",
+        userId: "user-456",
+        projectUpdate: {
+          id: "update-123",
+          body: "@claude mentioned here",
+          userId: "user-456",
+        },
+      },
+    };
+    expect(isProjectUpdateCommentForClaude(payload)).toBe(false);
+  });
+
+  test("returns false for non-Comment type", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Issue",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+    };
+    expect(isProjectUpdateCommentForClaude(payload)).toBe(false);
+  });
+});
+
+describe("isProjectUpdateCommentSelfTrigger", () => {
+  test("returns true when comment userId matches appUserId", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+      data: {
+        id: "comment-123",
+        body: "My response",
+        projectUpdateId: "update-123",
+        userId: "agent-user-123", // Same as appUserId
+      },
+    };
+    expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(true);
+  });
+
+  test("returns false when comment userId differs from appUserId", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+      data: {
+        id: "comment-123",
+        body: "User's comment",
+        projectUpdateId: "update-123",
+        userId: "human-user-456", // Different from appUserId
+      },
+    };
+    expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(false);
+  });
+
+  test("returns false when no data", () => {
+    const payload: LinearWebhookPayload = {
+      type: "Comment",
+      action: "create",
+      createdAt: new Date().toISOString(),
+      organizationId: "org-123",
+      appUserId: "agent-user-123",
+    };
+    expect(isProjectUpdateCommentSelfTrigger(payload)).toBe(false);
   });
 });

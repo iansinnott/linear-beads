@@ -202,6 +202,118 @@ export function isSelfTrigger(payload: LinearWebhookPayload): boolean {
   return creatorId === ourAgentId;
 }
 
+// --- Project Update Types and Helpers ---
+
+/**
+ * Project update payload shape (from ProjectUpdate webhook)
+ * See issue description for example payload
+ */
+export interface ProjectUpdateData {
+  id: string;
+  body: string;
+  bodyData?: string;
+  projectId: string;
+  health?: string;
+  userId: string;
+  project?: {
+    id: string;
+    name: string;
+    url?: string;
+  };
+  user?: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+}
+
+/**
+ * Comment payload shape (from Comment webhook on project updates)
+ * Example payload in GENT-1044 issue description
+ */
+export interface ProjectUpdateCommentData {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  projectUpdateId: string;
+  parentId?: string; // Present if this is a reply to another comment
+  userId: string;
+  reactionData?: unknown[];
+  isArtificialAgentSessionRoot?: boolean;
+  botActor?: unknown | null;
+  user?: {
+    id: string;
+    name: string;
+    email?: string;
+    avatarUrl?: string;
+    url?: string;
+  };
+  projectUpdate?: {
+    id: string;
+    body: string;
+    userId: string;
+    project?: {
+      id: string;
+      name: string;
+      url?: string;
+    };
+  };
+}
+
+/**
+ * Check if this is a project update mentioning @claude
+ */
+export function isProjectUpdateMention(payload: LinearWebhookPayload): boolean {
+  return (
+    payload.type === "ProjectUpdate" &&
+    payload.action === "create" &&
+    /@claude/i.test((payload.data?.body as string) || "")
+  );
+}
+
+/**
+ * Check if this project update was created by our agent (self-trigger)
+ */
+export function isProjectUpdateSelfTrigger(payload: LinearWebhookPayload): boolean {
+  const data = payload.data as ProjectUpdateData | undefined;
+  if (!data) return false;
+  // Compare update author with our app user ID
+  return data.userId === payload.appUserId;
+}
+
+/**
+ * Check if this is a comment on a project update where Claude is in the thread.
+ * Claude should respond to follow-up comments only if:
+ * 1. This is a Comment create action
+ * 2. It's on a project update (has projectUpdateId)
+ * 3. Claude was mentioned in the original project update body
+ */
+export function isProjectUpdateCommentForClaude(payload: LinearWebhookPayload): boolean {
+  if (payload.type !== "Comment" || payload.action !== "create") {
+    return false;
+  }
+
+  const data = payload.data as ProjectUpdateCommentData | undefined;
+  if (!data?.projectUpdateId) {
+    return false;
+  }
+
+  // Check if Claude was mentioned in the original project update
+  const projectUpdateBody = data.projectUpdate?.body || "";
+  return /@claude/i.test(projectUpdateBody);
+}
+
+/**
+ * Check if this comment was created by our agent (self-trigger)
+ */
+export function isProjectUpdateCommentSelfTrigger(payload: LinearWebhookPayload): boolean {
+  const data = payload.data as ProjectUpdateCommentData | undefined;
+  if (!data) return false;
+  // Compare comment author with our app user ID
+  return data.userId === payload.appUserId;
+}
+
 // AIDEV-NOTE: Marker used by agent to signal it needs user clarification
 // When present, we emit "elicitation" instead of "response", keeping session in awaitingInput state
 export const CLARIFICATION_MARKER = "[NEEDS_CLARIFICATION]";
