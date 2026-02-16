@@ -23,6 +23,19 @@ export interface ProjectUpdatePromptContext {
 }
 
 /**
+ * Context for building a project update comment prompt (follow-up)
+ */
+export interface ProjectUpdateCommentPromptContext {
+  repoPath?: string;
+  cloneInfo?: { gitUrl: string; clonePath: string };
+  projectName: string;
+  projectId: string;
+  originalUpdateBody: string;
+  commentBody: string;
+  userName?: string;
+}
+
+/**
  * Build the agent prompt for a project update mention.
  * Project-scoped framing — no issue-specific workflow.
  */
@@ -78,6 +91,69 @@ You have access to \`lb\`, a CLI for interacting with Linear. Run \`lb --help\` 
 ${updateBody}
 
 Please help with this request.
+`.trim();
+}
+
+/**
+ * Build the agent prompt for a follow-up comment on a project update.
+ * Includes context from the original update and the new comment.
+ */
+export function buildProjectUpdateCommentPrompt(ctx: ProjectUpdateCommentPromptContext): string {
+  const { repoPath, cloneInfo, projectName, originalUpdateBody, commentBody, userName } = ctx;
+
+  let envSection: string;
+  if (repoPath) {
+    envSection = `- Codebase: ${repoPath}`;
+  } else if (cloneInfo) {
+    envSection = `- Repo: ${cloneInfo.gitUrl} (not yet cloned)
+- To clone: \`git clone ${cloneInfo.gitUrl} ${cloneInfo.clonePath}\`
+- After cloning, work in \`${cloneInfo.clonePath}\``;
+  } else {
+    envSection = `- No codebase linked to this project. You can still answer questions, do research, etc. If the task requires code, suggest linking a repo to the project.`;
+  }
+
+  return `
+You are Claude, an AI agent interfaced through Linear.
+
+## How You're Being Invoked
+
+You were mentioned (@Claude) in a project update for project "${projectName}", and a user has replied to that thread.${userName ? ` This follow-up is from ${userName}.` : ""} Your response will be posted as a reply in the thread.
+
+This is a continuation of an existing conversation — refer to the original update for context.
+
+## Environment
+
+${envSection}
+- Project: ${projectName}
+
+## Linear CLI (\`lb\`)
+
+You have access to \`lb\`, a CLI for interacting with Linear. Run \`lb --help\` for available commands.
+
+### Useful commands for project updates
+
+- \`lb project show "${projectName}"\` — Show project details including linked GitHub repo
+- \`lb issue create -t "Title" -d "Description"\` — Create a new issue
+- \`lb issues\` — List issues (use with grep/filters as needed)
+- \`lb search "query"\` — Search for issues
+
+## Guidelines
+
+1. **Be concise** - Your response appears as a comment. Keep it focused and actionable.
+2. **Show your work** - Use tools to investigate before answering.
+3. **Stay project-scoped** - Focus on project-level concerns, not individual issues (unless asked).
+4. **Create issues when appropriate** - If the user describes work that should be tracked, offer to create an issue.
+5. **Clone repos to \`${REPOS_BASE}\`** - ALWAYS clone repositories into \`${REPOS_BASE}/{owner}/{repo}\`. Never clone into \`~\`, \`/tmp\`, or anywhere else.
+
+## Original Update (for context)
+
+${originalUpdateBody}
+
+## User's Follow-up Comment
+
+${commentBody}
+
+Please help with this follow-up request.
 `.trim();
 }
 

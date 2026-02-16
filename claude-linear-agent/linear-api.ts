@@ -118,6 +118,47 @@ export function createReactionMutation(projectUpdateId: string, emoji: string) {
 }
 
 /**
+ * Create GraphQL mutation for adding an emoji reaction to a comment.
+ * Used for acknowledging receipt of user comments on project updates.
+ */
+export function createCommentReactionMutation(commentId: string, emoji: string) {
+  return {
+    query: `
+      mutation CreateCommentReaction($input: ReactionCreateInput!) {
+        reactionCreate(input: $input) {
+          success
+        }
+      }
+    `,
+    variables: {
+      input: { commentId, emoji },
+    },
+  };
+}
+
+/**
+ * Create GraphQL mutation for replying to a comment on a project update.
+ * Uses parentId to create a threaded reply.
+ */
+export function createProjectUpdateCommentReplyMutation(
+  projectUpdateId: string,
+  parentId: string,
+  body: string
+) {
+  return {
+    query: `
+      mutation CreateProjectUpdateCommentReply($projectUpdateId: String!, $parentId: String!, $body: String!) {
+        commentCreate(input: { projectUpdateId: $projectUpdateId, parentId: $parentId, body: $body }) {
+          success
+          comment { id }
+        }
+      }
+    `,
+    variables: { projectUpdateId, parentId, body },
+  };
+}
+
+/**
  * Create GraphQL mutation for adding a resource link to a project.
  */
 export function createProjectLinkMutation(
