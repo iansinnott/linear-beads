@@ -94,6 +94,30 @@ app.post("/webhook", async (c) => {
     issueIdentifier: payload.agentSession?.issue?.identifier,
   });
 
+  // AIDEV-NOTE: Enhanced logging for ProjectUpdate events to debug emoji disappearing issue
+  // Log ALL ProjectUpdate webhooks with details about reactions
+  if (payload.type === "ProjectUpdate") {
+    const data = payload.data as ProjectUpdateData | undefined;
+    log("info", "ProjectUpdate webhook details", {
+      action: payload.action,
+      projectUpdateId: data?.id,
+      projectName: data?.project?.name,
+      bodyPreview: data?.body?.slice(0, 50),
+      reactionData: (data as Record<string, unknown>)?.reactionData,
+      hasClaude: /@claude/i.test(data?.body || ""),
+    });
+
+    // Save ALL project update webhooks (not just create) for debugging
+    if (process.env.NODE_ENV !== "production") {
+      const fs = require("fs");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      fs.writeFileSync(
+        `/tmp/pu-webhook-${payload.action}-${timestamp}.json`,
+        JSON.stringify(payload, null, 2)
+      );
+    }
+  }
+
   // Handle agent session events
   if (isAgentSessionCreated(payload)) {
     const session = payload.agentSession;

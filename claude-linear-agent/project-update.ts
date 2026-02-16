@@ -73,11 +73,16 @@ async function postComment(projectUpdateId: string, body: string): Promise<boole
  * Handle a project update mention
  *
  * Flow:
- * 1. Add emoji reaction (fast acknowledgment)
+ * 1. Wait for Linear's async initialization (~2.5s) then add 👀 reaction (ACK: "I saw this")
  * 2. Resolve repo from project external links
  * 3. Build project-level prompt
  * 4. Run agent via query() — lean loop, just collect final response
  * 5. Post response as comment on the project update
+ * 6. Add :claude: reaction (signal: "I responded" — helps since comments don't auto-expand)
+ *
+ * AIDEV-NOTE: Linear has a bug where newly created project updates have an async
+ * initialization process that clears reactions added within ~2s of creation.
+ * Workaround: wait 2.5s before adding reactions.
  */
 export async function handleProjectUpdate(data: ProjectUpdateData): Promise<void> {
   const startTime = Date.now();
@@ -86,10 +91,11 @@ export async function handleProjectUpdate(data: ProjectUpdateData): Promise<void
   const projectName = data.project?.name || "Unknown Project";
   const userName = data.user?.name;
 
-  // 1. Add emoji reactions for fast acknowledgment
-  // Using string format (e.g., "eyes") which also supports custom workspace emoji
+  // 1. Wait for Linear's async initialization, then add 👀 (ACK: "I saw this")
+  // Linear clears reactions on newly created project updates ~2s after creation.
+  // We wait 2.5s to ensure the initialization is complete before adding reactions.
+  await new Promise((resolve) => setTimeout(resolve, 2500));
   await addReaction(projectUpdateId, "eyes");
-  await addReaction(projectUpdateId, "claude");
 
   // 2. Resolve repo from project
   const { cwd, repoPath, cloneInfo } = await resolveProjectRepoCwd(projectId);
@@ -158,9 +164,14 @@ export async function handleProjectUpdate(data: ProjectUpdateData): Promise<void
         projectUpdateId,
       });
     }
+
+    // 6. Add :claude: reaction to signal "I responded" (comments don't auto-expand in UI)
+    await addReaction(projectUpdateId, "claude");
   } catch (error) {
     const errorMsg = `I encountered an error: ${error instanceof Error ? error.message : "Unknown error"}`;
     await postComment(projectUpdateId, sanitizeMentions(errorMsg));
+    // Still add :claude: on error so user knows we tried to respond
+    await addReaction(projectUpdateId, "claude");
     log("error", "Project update agent failed", {
       projectUpdateId,
       durationMs: Date.now() - startTime,
