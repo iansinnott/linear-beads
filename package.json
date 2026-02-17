@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "agent:dev": "mkdir -p tmp && bun --watch run claude-linear-agent/server.ts 2>&1 | tee tmp/server.log",
+    "ngrok": "envsubst < ngrok-policy.yml | ngrok http 3000 --traffic-policy-file /dev/stdin",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
